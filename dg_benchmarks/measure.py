@@ -7,6 +7,7 @@ import numpy as np
 
 from arraycontext import (ArrayContext, PyOpenCLArrayContext,
                           PytatoPyOpenCLArrayContext,
+                          PytatoCUDAGraphArrayContext,
                           PytatoJAXArrayContext,
                           EagerJAXArrayContext,
                           rec_multimap_array_container)
@@ -43,6 +44,10 @@ def _instantiate_actx_t(actx_t: Type[ArrayContext]) -> ArrayContext:
         from jax.config import config
         config.update("jax_enable_x64", True)
         return actx_t()
+    elif issubclass(actx_t, (PytatoCUDAGraphArrayContext)):
+        from pycuda.tools import DeviceMemoryPool
+        import pycuda.autoinit
+        return actx_t(allocator=DeviceMemoryPool().allocate)
     else:
         raise NotImplementedError(actx_t)
 

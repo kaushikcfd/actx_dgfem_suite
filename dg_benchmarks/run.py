@@ -14,10 +14,9 @@ from dg_benchmarks.perf_analysis import get_roofline_flop_rate
 from typing import Type, Sequence
 from bidict import bidict
 from meshmode.array_context import (
-    BatchedEinsumPytatoPyOpenCLArrayContext,
     PyOpenCLArrayContext as BasePyOpenCLArrayContext,
 )
-from arraycontext import ArrayContext, PytatoJAXArrayContext, EagerJAXArrayContext
+from arraycontext import ArrayContext, PytatoJAXArrayContext, EagerJAXArrayContext, PytatoCUDAGraphArrayContext
 from tabulate import tabulate
 
 
@@ -33,6 +32,8 @@ class PyOpenCLArrayContext(BasePyOpenCLArrayContext):
 
 def _get_actx_t_priority(actx_t):
     if issubclass(actx_t, PytatoJAXArrayContext):
+        return 9
+    if issubclass(actx_t, PytatoCUDAGraphArrayContext):
         return 10
     else:
         return 1
@@ -102,7 +103,7 @@ _NAME_TO_ACTX_CLASS = bidict({
     "pyopencl": PyOpenCLArrayContext,
     "jax:nojit": EagerJAXArrayContext,
     "jax:jit": PytatoJAXArrayContext,
-    "pytato:batched_einsum": BatchedEinsumPytatoPyOpenCLArrayContext,
+    "cudagraph": PytatoCUDAGraphArrayContext,
 })
 
 
