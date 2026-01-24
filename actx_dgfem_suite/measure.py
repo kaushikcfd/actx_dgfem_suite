@@ -3,25 +3,31 @@ Utilities for performance evaluation of a DG-FEM benchmark.
 
 .. autofunction:: get_flop_rate
 """
-import numpy as np
 
-from arraycontext import (ArrayContext, PyOpenCLArrayContext,
-                          PytatoPyOpenCLArrayContext,
-                          PytatoJAXArrayContext,
-                          EagerJAXArrayContext,
-                          rec_multimap_array_container)
-from typing import Type
-from actx_dgfem_suite.utils import (get_benchmark_rhs_invoker,
-                                 get_benchmark_ref_input_arguments_path,
-                                 get_benchmark_ref_output_path)
-
-from actx_dgfem_suite.perf_analysis import get_float64_flops
 from time import time
+
+import numpy as np
+from arraycontext import (
+    ArrayContext,
+    EagerJAXArrayContext,
+    PyOpenCLArrayContext,
+    PytatoJAXArrayContext,
+    PytatoPyOpenCLArrayContext,
+    rec_multimap_array_container,
+)
 from meshmode.dof_array import array_context_for_pickling
 
+from actx_dgfem_suite.perf_analysis import get_float64_flops
+from actx_dgfem_suite.utils import (
+    get_benchmark_ref_input_arguments_path,
+    get_benchmark_ref_output_path,
+    get_benchmark_rhs_invoker,
+)
 
-def _instantiate_actx_t(actx_t: Type[ArrayContext]) -> ArrayContext:
+
+def _instantiate_actx_t(actx_t: type[ArrayContext]) -> ArrayContext:
     import gc
+
     gc.collect()
 
     if issubclass(actx_t, (PyOpenCLArrayContext, PytatoPyOpenCLArrayContext)):
@@ -34,35 +40,42 @@ def _instantiate_actx_t(actx_t: Type[ArrayContext]) -> ArrayContext:
         return actx_t(cq, allocator)
     elif issubclass(actx_t, (EagerJAXArrayContext, PytatoJAXArrayContext)):
         import os
+
         if os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] != "false":
-            raise RuntimeError("environment variable 'XLA_PYTHON_CLIENT_PREALLOCATE'"
-                               " is not set 'false'. This is required so that"
-                               " backends other than JAX can allocate buffers on the"
-                               " device.")
+            raise RuntimeError(
+                "environment variable 'XLA_PYTHON_CLIENT_PREALLOCATE'"
+                " is not set 'false'. This is required so that"
+                " backends other than JAX can allocate buffers on the"
+                " device."
+            )
 
         from jax.config import config
+
         config.update("jax_enable_x64", True)
         return actx_t()
     else:
         raise NotImplementedError(actx_t)
 
 
-def get_flop_rate(actx_t: Type[ArrayContext], equation: str, dim: int,
-                  degree: int) -> float:
+def get_flop_rate(
+    actx_t: type[ArrayContext], equation: str, dim: int, degree: int
+) -> float:
     """
     Runs the benchmarks corresponding to *equation*, *dim*, *degree* using an
     instance of *actx_t* and returns the FLOP-through as "Total number of
     Floating Point Operations per second".
     """
     import pickle
+
     from actx_dgfem_suite.utils import is_dataclass_array_container
 
     rhs_invoker = get_benchmark_rhs_invoker(equation, dim, degree)
     actx = _instantiate_actx_t(actx_t)
     rhs_clbl = rhs_invoker(actx)
 
-    with open(get_benchmark_ref_input_arguments_path(equation, dim, degree),
-              "rb") as fp:
+    with open(
+        get_benchmark_ref_input_arguments_path(equation, dim, degree), "rb"
+    ) as fp:
         with array_context_for_pickling(actx):
             np_args, np_kwargs = pickle.load(fp)
 
@@ -70,24 +83,31 @@ def get_flop_rate(actx_t: Type[ArrayContext], equation: str, dim: int,
         with array_context_for_pickling(actx):
             ref_output = pickle.load(fp)
 
-    if (all((is_dataclass_array_container(arg)
-             or (isinstance(arg, np.ndarray)
-                 and arg.dtype == "O"
-                 and all(is_dataclass_array_container(el)
-                         for el in arg))
-             or np.isscalar(arg))
-            for arg in np_args)
-            and all(is_dataclass_array_container(arg) or np.isscalar(arg)
-                    for arg in np_kwargs.values())):
+    if all(
+        (
+            is_dataclass_array_container(arg)
+            or (
+                isinstance(arg, np.ndarray)
+                and arg.dtype == "O"
+                and all(is_dataclass_array_container(el) for el in arg)
+            )
+            or np.isscalar(arg)
+        )
+        for arg in np_args
+    ) and all(
+        is_dataclass_array_container(arg) or np.isscalar(arg)
+        for arg in np_kwargs.values()
+    ):
         args, kwargs = np_args, np_kwargs
-    elif (any(is_dataclass_array_container(arg) for arg in np_args)
-            or any(is_dataclass_array_container(arg)
-                   for arg in np_kwargs.values())):
-        raise NotImplementedError("Pickling not implemented for input"
-                                  " types.")
+    elif any(is_dataclass_array_container(arg) for arg in np_args) or any(
+        is_dataclass_array_container(arg) for arg in np_kwargs.values()
+    ):
+        raise NotImplementedError("Pickling not implemented for input" " types.")
     else:
-        args, kwargs = (tuple(actx.from_numpy(arg) for arg in np_args),
-                        {kw: actx.from_numpy(arg) for kw, arg in np_kwargs.items()})
+        args, kwargs = (
+            tuple(actx.from_numpy(arg) for arg in np_args),
+            {kw: actx.from_numpy(arg) for kw, arg in np_kwargs.items()},
+        )
 
     if is_dataclass_array_container(ref_output):
         np_ref_output = actx.to_numpy(ref_output)
@@ -98,9 +118,11 @@ def get_flop_rate(actx_t: Type[ArrayContext], equation: str, dim: int,
 
     if 0:
         output = rhs_clbl(*args, **kwargs)
-        rec_multimap_array_container(np.testing.assert_allclose,
-                                     np_ref_output, actx.to_numpy(output),
-                                     )
+        rec_multimap_array_container(
+            np.testing.assert_allclose,
+            np_ref_output,
+            actx.to_numpy(output),
+        )
 
     # }}}
 
@@ -113,7 +135,7 @@ def get_flop_rate(actx_t: Type[ArrayContext], equation: str, dim: int,
         t_start = time()
         rhs_clbl(*args, **kwargs)
         t_end = time()
-        t_warmup += (t_end - t_start)
+        t_warmup += t_end - t_start
         i_warmup += 1
 
     # }}}
@@ -130,7 +152,7 @@ def get_flop_rate(actx_t: Type[ArrayContext], equation: str, dim: int,
             rhs_clbl(*args, **kwargs)
         t_end = time()
 
-        t_rhs += (t_end - t_start)
+        t_rhs += t_end - t_start
         i_timing += 40
 
     # }}}

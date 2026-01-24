@@ -25,27 +25,22 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
-
-from pytools.obj_array import make_obj_array
-
-from meshmode.mesh import BTAG_ALL
-from meshmode.mesh.generation import generate_regular_rect_mesh
 from grudge import DiscretizationCollection
 from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
-from meshmode.discretization.poly_element import (default_simplex_group_factory,
-                                                  QuadratureSimplexGroupFactory)
+from grudge.models.euler import ConservedEulerField, EulerOperator, InviscidWallBC
+from meshmode.discretization.poly_element import (
+    QuadratureSimplexGroupFactory,
+    default_simplex_group_factory,
+)
+from meshmode.mesh import BTAG_ALL
+from meshmode.mesh.generation import generate_regular_rect_mesh
+from pytools.obj_array import make_obj_array
 
-import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-
-from grudge.models.euler import (
-    ConservedEulerField,
-    EulerOperator,
-    InviscidWallBC
-)
-
 
 GLOBAL_NDOFS = 3e6
 
@@ -55,13 +50,13 @@ def _get_nel_1d(dim: int, order: int) -> int:
 
     if dim == 3:
         if order == 1:
-            nel_1d = ceil(((GLOBAL_NDOFS/4)/12)**(1/3))
+            nel_1d = ceil(((GLOBAL_NDOFS / 4) / 12) ** (1 / 3))
         elif order == 2:
-            nel_1d = ceil(((GLOBAL_NDOFS/10)/12)**(1/3))
+            nel_1d = ceil(((GLOBAL_NDOFS / 10) / 12) ** (1 / 3))
         elif order == 3:
-            nel_1d = ceil(((GLOBAL_NDOFS/20)/12)**(1/3))
+            nel_1d = ceil(((GLOBAL_NDOFS / 20) / 12) ** (1 / 3))
         elif order == 4:
-            nel_1d = ceil(((GLOBAL_NDOFS/35)/12)**(1/3))
+            nel_1d = ceil(((GLOBAL_NDOFS / 35) / 12) ** (1 / 3))
         else:
             raise NotImplementedError(order)
     elif dim == 2:
@@ -82,8 +77,8 @@ def _get_nel_1d(dim: int, order: int) -> int:
 
 
 def gaussian_profile(
-        x_vec, t=0, rho0=1.0, rhoamp=1.0, p0=1.0, gamma=1.4,
-        center=None, velocity=None):
+    x_vec, t=0, rho0=1.0, rhoamp=1.0, p0=1.0, gamma=1.4, center=None, velocity=None
+):
 
     dim = len(x_vec)
     if center is None:
@@ -94,12 +89,10 @@ def gaussian_profile(
     lump_loc = center + t * velocity
 
     # coordinates relative to lump center
-    rel_center = make_obj_array(
-        [x_vec[i] - lump_loc[i] for i in range(dim)]
-    )
+    rel_center = make_obj_array([x_vec[i] - lump_loc[i] for i in range(dim)])
     actx = x_vec[0].array_context
     r = actx.np.sqrt(np.dot(rel_center, rel_center))
-    expterm = rhoamp * actx.np.exp(1 - r ** 2)
+    expterm = rhoamp * actx.np.exp(1 - r**2)
 
     mass = expterm + rho0
     mom = velocity * mass
@@ -112,13 +105,11 @@ def make_pulse(amplitude, r0, w, r):
     dim = len(r)
     r_0 = np.zeros(dim)
     r_0 = r_0 + r0
-    rel_center = make_obj_array(
-        [r[i] - r_0[i] for i in range(dim)]
-    )
+    rel_center = make_obj_array([r[i] - r_0[i] for i in range(dim)])
     actx = r[0].array_context
     rms2 = w * w
     r2 = np.dot(rel_center, rel_center) / rms2
-    return amplitude * actx.np.exp(-.5 * r2)
+    return amplitude * actx.np.exp(-0.5 * r2)
 
 
 def acoustic_pulse_condition(x_vec, t=0):
@@ -126,7 +117,8 @@ def acoustic_pulse_condition(x_vec, t=0):
     vel = np.zeros(shape=(dim,))
     orig = np.zeros(shape=(dim,))
     uniform_gaussian = gaussian_profile(
-        x_vec, t=t, center=orig, velocity=vel, rhoamp=0.0)
+        x_vec, t=t, center=orig, velocity=vel, rhoamp=0.0
+    )
 
     amplitude = 1.0
     width = 0.1
@@ -135,15 +127,11 @@ def acoustic_pulse_condition(x_vec, t=0):
     return ConservedEulerField(
         mass=uniform_gaussian.mass,
         energy=uniform_gaussian.energy + pulse,
-        momentum=uniform_gaussian.momentum
+        momentum=uniform_gaussian.momentum,
     )
 
 
-def main(dim,
-         order,
-         actx,
-         *,
-         overintegration=False):
+def main(dim, order, actx, *, overintegration=False):
 
     nel_1d = _get_nel_1d(dim, order)
 
@@ -155,9 +143,8 @@ def main(dim,
     box_ll = -0.5
     box_ur = 0.5
     mesh = generate_regular_rect_mesh(
-        a=(box_ll,)*dim,
-        b=(box_ur,)*dim,
-        nelements_per_axis=(nel_1d,)*dim)
+        a=(box_ll,) * dim, b=(box_ur,) * dim, nelements_per_axis=(nel_1d,) * dim
+    )
 
     if overintegration:
         quad_tag = DISCR_TAG_QUAD
@@ -165,12 +152,14 @@ def main(dim,
         quad_tag = None
 
     dcoll = DiscretizationCollection(
-        actx, mesh,
+        actx,
+        mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(
-                base_dim=mesh.dim, order=order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
-        }
+                base_dim=mesh.dim, order=order
+            ),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2 * order),
+        },
     )
 
     # }}}
@@ -182,7 +171,7 @@ def main(dim,
         bdry_conditions={BTAG_ALL: InviscidWallBC()},
         flux_type="lf",
         gamma=gamma,
-        quadrature_tag=quad_tag
+        quadrature_tag=quad_tag,
     )
 
     def rhs(t, q):
@@ -193,7 +182,7 @@ def main(dim,
     from grudge.dt_utils import h_min_from_volume
 
     cfl = 0.125
-    cn = 0.5*(order + 1)**2
+    cn = 0.5 * (order + 1) ** 2
     dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
 
     fields = acoustic_pulse_condition(actx.thaw(dcoll.nodes()))

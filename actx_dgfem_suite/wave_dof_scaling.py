@@ -26,48 +26,48 @@ THE SOFTWARE.
 
 
 import argparse
-import loopy as lp
-import numpy as np
+import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
 from time import time
 
-from typing import Type, Sequence
+import grudge.op as op
+import loopy as lp
+import numpy as np
+from arraycontext import (
+    ArrayContext,
+    EagerJAXArrayContext,
+    PytatoJAXArrayContext,
+    dataclass_array_container,
+    with_container_arithmetic,
+)
 from bidict import bidict
+from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc, as_dofdesc
+from grudge.trace_pair import TracePair
 from meshmode.array_context import (
     BatchedEinsumPytatoPyOpenCLArrayContext,
+)
+from meshmode.array_context import (
     PyOpenCLArrayContext as BasePyOpenCLArrayContext,
 )
-from arraycontext import ArrayContext, PytatoJAXArrayContext, EagerJAXArrayContext
-from tabulate import tabulate
-
-from arraycontext import (
-    with_container_arithmetic,
-    dataclass_array_container
-)
-
-from dataclasses import dataclass
-
-from pytools.obj_array import flat_obj_array, make_obj_array
-
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+from pytools.obj_array import flat_obj_array, make_obj_array
+from tabulate import tabulate
 
-from grudge.dof_desc import as_dofdesc, DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
-from grudge.trace_pair import TracePair
-from grudge.discretization import DiscretizationCollection
-
-import grudge.op as op
-
-import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
 class PyOpenCLArrayContext(BasePyOpenCLArrayContext):
-    def transform_loopy_program(self,
-                                t_unit: lp.TranslationUnit
-                                ) -> lp.TranslationUnit:
+    def transform_loopy_program(
+        self, t_unit: lp.TranslationUnit
+    ) -> lp.TranslationUnit:
         from meshmode.arraycontext_extras.split_actx.utils import (
-            split_iteration_domain_across_work_items)
+            split_iteration_domain_across_work_items,
+        )
+
         t_unit = split_iteration_domain_across_work_items(t_unit, self.queue.device)
         return t_unit
 
@@ -83,7 +83,7 @@ def stringify_dofs_per_s(dofs_per_s: float) -> str:
     if np.isnan(dofs_per_s):
         return "N/A"
     else:
-        return f"{dofs_per_s*1e-9:.3f}"
+        return f"{dofs_per_s * 1e-9:.3f}"
 
 
 def get_nunit_dofs(*, dim: int, degree: int) -> int:
@@ -104,15 +104,18 @@ def get_nunit_dofs(*, dim: int, degree: int) -> int:
 
 def get_actual_scalar_ndofs(*, ndofs: int, degree: int, dim: int) -> int:
     from math import ceil
+
     nunit_dofs = get_nunit_dofs(dim=dim, degree=degree)
-    nel_1d = ceil(((ndofs/nunit_dofs)/6)**(1/3))
-    return 6 * (nel_1d ** 3) * nunit_dofs
+    nel_1d = ceil(((ndofs / nunit_dofs) / 6) ** (1 / 3))
+    return 6 * (nel_1d**3) * nunit_dofs
 
 
 # {{{ wave eqution bits
 
-@with_container_arithmetic(bcast_obj_array=True, rel_comparison=True,
-        _cls_has_array_context_attr=True)
+
+@with_container_arithmetic(
+    bcast_obj_array=True, rel_comparison=True, _cls_has_array_context_attr=True
+)
 @dataclass_array_container
 @dataclass(frozen=True)
 class WaveState:
@@ -134,10 +137,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
 
     normal = actx.thaw(dcoll.normal(dd))
 
-    flux_weak = WaveState(
-        u=v.avg @ normal,
-        v=u.avg * normal
-    )
+    flux_weak = WaveState(u=v.avg @ normal, v=u.avg * normal)
 
     # upwind
     v_jump = v.diff @ normal
@@ -146,7 +146,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
         v=0.5 * v_jump * normal,
     )
 
-    return op.project(dcoll, dd, dd.with_dtag("all_faces"), c*flux_weak)
+    return op.project(dcoll, dd, dd.with_dtag("all_faces"), c * flux_weak)
 
 
 class _WaveStateTag:
@@ -165,7 +165,7 @@ def wave_operator(actx, dcoll, c, w, quad_tag=None):
         return TracePair(
             local_dd_quad,
             interior=op.project(dcoll, local_dd, local_dd_quad, utpair.int),
-            exterior=op.project(dcoll, local_dd, local_dd_quad, utpair.ext)
+            exterior=op.project(dcoll, local_dd, local_dd_quad, utpair.ext),
         )
 
     w_quad = op.project(dcoll, dd_base, dd_vol, w)
@@ -178,49 +178,46 @@ def wave_operator(actx, dcoll, c, w, quad_tag=None):
     dir_bval = WaveState(u=dir_u, v=dir_v)
     dir_bc = WaveState(u=-dir_u, v=dir_v)
 
-    return (
-        op.inverse_mass(
-            dcoll,
-            WaveState(
-                u=-c*op.weak_local_div(dcoll, dd_vol, v),
-                v=-c*op.weak_local_grad(dcoll, dd_vol, u)
-            )
-            + op.face_mass(
-                dcoll,
-                dd_faces,
-                wave_flux(
-                    actx,
-                    dcoll, c=c,
-                    w_tpair=op.bdry_trace_pair(dcoll,
-                                               dd_btag,
-                                               interior=dir_bval,
-                                               exterior=dir_bc)
-                ) + sum(
-                    wave_flux(actx, dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
-                    for tpair in op.interior_trace_pairs(dcoll, w,
-                        comm_tag=_WaveStateTag)
-                )
-            )
+    return op.inverse_mass(
+        dcoll,
+        WaveState(
+            u=-c * op.weak_local_div(dcoll, dd_vol, v),
+            v=-c * op.weak_local_grad(dcoll, dd_vol, u),
         )
+        + op.face_mass(
+            dcoll,
+            dd_faces,
+            wave_flux(
+                actx,
+                dcoll,
+                c=c,
+                w_tpair=op.bdry_trace_pair(
+                    dcoll, dd_btag, interior=dir_bval, exterior=dir_bc
+                ),
+            )
+            + sum(
+                wave_flux(actx, dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
+                for tpair in op.interior_trace_pairs(
+                    dcoll, w, comm_tag=_WaveStateTag
+                )
+            ),
+        ),
     )
 
 
 def bump(actx, dcoll, t=0):
-    source_center = np.array([0.2, 0.35, 0.1])[:dcoll.dim]
+    source_center = np.array([0.2, 0.35, 0.1])[: dcoll.dim]
     source_width = 0.05
     source_omega = 3
 
     nodes = actx.thaw(dcoll.nodes())
-    center_dist = flat_obj_array([
-        nodes[i] - source_center[i]
-        for i in range(dcoll.dim)
-        ])
+    center_dist = flat_obj_array(
+        [nodes[i] - source_center[i] for i in range(dcoll.dim)]
+    )
 
-    return (
-        np.cos(source_omega*t)
-        * actx.np.exp(
-            -np.dot(center_dist, center_dist)
-            / source_width**2))
+    return np.cos(source_omega * t) * actx.np.exp(
+        -np.dot(center_dist, center_dist) / source_width**2
+    )
 
 
 def get_wave_rhs(*, actx, dim, order, ndofs, use_nonaffine_mesh=False):
@@ -228,42 +225,46 @@ def get_wave_rhs(*, actx, dim, order, ndofs, use_nonaffine_mesh=False):
 
     nunit_dofs = get_nunit_dofs(dim=dim, degree=order)
 
-    nel_1d = ceil(((ndofs/nunit_dofs)/6)**(1/3))
-    assert (6 * (nel_1d ** 3) * nunit_dofs) == ndofs
+    nel_1d = ceil(((ndofs / nunit_dofs) / 6) ** (1 / 3))
+    assert (6 * (nel_1d**3) * nunit_dofs) == ndofs
 
     if use_nonaffine_mesh:
         from meshmode.mesh.generation import generate_warped_rect_mesh
+
         # FIXME: *generate_warped_rect_mesh* in meshmode warps a
         # rectangle domain with hard-coded vertices at (-0.5,)*dim
         # and (0.5,)*dim. Should extend the function interface to allow
         # for specifying the end points directly.
-        mesh = generate_warped_rect_mesh(dim=dim, order=order,
-                                         nelements_side=nel_1d)
+        mesh = generate_warped_rect_mesh(dim=dim, order=order, nelements_side=nel_1d)
     else:
         from meshmode.mesh.generation import generate_regular_rect_mesh
+
         mesh = generate_regular_rect_mesh(
-                a=(-0.5,)*dim,
-                b=(0.5,)*dim,
-                nelements_per_axis=(nel_1d,)*dim)
+            a=(-0.5,) * dim, b=(0.5,) * dim, nelements_per_axis=(nel_1d,) * dim
+        )
 
     logger.info("%d elements", mesh.nelements)
 
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory, \
-            default_simplex_group_factory
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
+
     dcoll = DiscretizationCollection(
-        actx, mesh,
+        actx,
+        mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
             # High-order quadrature to integrate inner products of polynomials
             # on warped geometry exactly (metric terms are also polynomial)
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
-        })
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3 * order),
+        },
+    )
 
     quad_tag = None
     fields = WaveState(
         u=bump(actx, dcoll),
-        v=make_obj_array([dcoll.zeros(actx) for i in range(dcoll.dim)])
+        v=make_obj_array([dcoll.zeros(actx) for i in range(dcoll.dim)]),
     )
 
     c = 1
@@ -282,13 +283,15 @@ def get_wave_rhs(*, actx, dim, order, ndofs, use_nonaffine_mesh=False):
 
     return lambda x: rhs(t, x), fields
 
+
 # }}}
 
 
-def main(dim: int,
-         degrees: Sequence[int],
-         actx_t: Type[ArrayContext],
-         ):
+def main(
+    dim: int,
+    degrees: Sequence[int],
+    actx_t: type[ArrayContext],
+):
     from actx_dgfem_suite.measure import _instantiate_actx_t
 
     ndofs_list = [0.5e6, 1e6, 2e6, 3e6, 4e6, 6e6]
@@ -297,13 +300,12 @@ def main(dim: int,
     for i_degree, degree in enumerate(degrees):
         for i_ndofs, ndofs in enumerate(ndofs_list):
             actx = _instantiate_actx_t(actx_t)
-            actual_scalar_ndofs = get_actual_scalar_ndofs(ndofs=ndofs,
-                                                          degree=degree,
-                                                          dim=dim)
-            rhs_clbl, rhs_args = get_wave_rhs(actx=actx,
-                                              dim=dim,
-                                              order=degree,
-                                              ndofs=actual_scalar_ndofs)
+            actual_scalar_ndofs = get_actual_scalar_ndofs(
+                ndofs=ndofs, degree=degree, dim=dim
+            )
+            rhs_clbl, rhs_args = get_wave_rhs(
+                actx=actx, dim=dim, order=degree, ndofs=actual_scalar_ndofs
+            )
             compiled_rhs_clbl = actx.compile(rhs_clbl)
 
             # {{{ warmup rounds
@@ -315,7 +317,7 @@ def main(dim: int,
                 t_start = time()
                 compiled_rhs_clbl(rhs_args)
                 t_end = time()
-                t_warmup += (t_end - t_start)
+                t_warmup += t_end - t_start
                 i_warmup += 1
 
             # }}}
@@ -332,71 +334,98 @@ def main(dim: int,
                     compiled_rhs_clbl(rhs_args)
                 t_end = time()
 
-                t_rhs += (t_end - t_start)
+                t_rhs += t_end - t_start
                 i_timing += 40
 
             # }}}
 
             # Multiplying by "(dim + 1)" to account for DOFs for all fields
-            dof_throughput[i_degree, i_ndofs] = (actual_scalar_ndofs
-                                                 * (dim + 1)
-                                                 * i_timing) / t_rhs
+            dof_throughput[i_degree, i_ndofs] = (
+                actual_scalar_ndofs * (dim + 1) * i_timing
+            ) / t_rhs
 
             del actx
             import gc
+
             gc.collect()
 
     print(f"GDOFS/s for {dim}D-wave for {_NAME_TO_ACTX_CLASS.inv[actx_t]}:")
     table = []
     for i_degree, degree in enumerate(degrees):
         table.append(
-            [f"P{degree}",
-             *[stringify_dofs_per_s(dof_throughput[i_degree, i_ndofs])
-               for i_ndofs, _ in enumerate(ndofs_list)],
-             ]
+            [
+                f"P{degree}",
+                *[
+                    stringify_dofs_per_s(dof_throughput[i_degree, i_ndofs])
+                    for i_ndofs, _ in enumerate(ndofs_list)
+                ],
+            ]
         )
-    print(tabulate(table,
-                   tablefmt="fancy_grid",
-                   headers=[""] + [str(ndofs) for ndofs in ndofs_list]))
+    print(
+        tabulate(
+            table,
+            tablefmt="fancy_grid",
+            headers=[""] + [str(ndofs) for ndofs in ndofs_list],
+        )
+    )
 
 
-_NAME_TO_ACTX_CLASS = bidict({
-    "pyopencl": PyOpenCLArrayContext,
-    "jax:nojit": EagerJAXArrayContext,
-    "jax:jit": PytatoJAXArrayContext,
-    "pytato:batched_einsum": BatchedEinsumPytatoPyOpenCLArrayContext,
-})
+_NAME_TO_ACTX_CLASS = bidict(
+    {
+        "pyopencl": PyOpenCLArrayContext,
+        "jax:nojit": EagerJAXArrayContext,
+        "jax:jit": PytatoJAXArrayContext,
+        "pytato:batched_einsum": BatchedEinsumPytatoPyOpenCLArrayContext,
+    }
+)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog=".py",
         description="Obtain DOF-throughput scaling for different problem sizes of a"
-                    "wave equation solver.",
+        "wave equation solver.",
     )
 
-    parser.add_argument("--dim", metavar="D", type=int,
-                        help=("An integer representing the"
-                              " topological dimensions to run the problems on"
-                              " (for ex. 3 to run 3D versions of the"
-                              " problem)"),
-                        required=True,
-                        )
-    parser.add_argument("--degrees", metavar="G", type=str,
-                        help=("comma separated integers representing the"
-                              " polynomial degree of the discretizing function"
-                              " spaces to run the problems on (for ex. 1,2,3"
-                              " to run using P1,P2,P3 function spaces)"),
-                        required=True,
-                        )
-    parser.add_argument("--actx", metavar="G", type=str,
-                        help=("strings denoting which array context to use for the"
-                              " scaling test  (for ex."
-                              " 'pytato:batched_einsum')"),
-                        required=True,
-                        )
+    parser.add_argument(
+        "--dim",
+        metavar="D",
+        type=int,
+        help=(
+            "An integer representing the"
+            " topological dimensions to run the problems on"
+            " (for ex. 3 to run 3D versions of the"
+            " problem)"
+        ),
+        required=True,
+    )
+    parser.add_argument(
+        "--degrees",
+        metavar="G",
+        type=str,
+        help=(
+            "comma separated integers representing the"
+            " polynomial degree of the discretizing function"
+            " spaces to run the problems on (for ex. 1,2,3"
+            " to run using P1,P2,P3 function spaces)"
+        ),
+        required=True,
+    )
+    parser.add_argument(
+        "--actx",
+        metavar="G",
+        type=str,
+        help=(
+            "strings denoting which array context to use for the"
+            " scaling test  (for ex."
+            " 'pytato:batched_einsum')"
+        ),
+        required=True,
+    )
 
     args = parser.parse_args()
-    main(dim=args.dim,
-         degrees=[int(k.strip()) for k in args.degrees.split(",")],
-         actx_t=_NAME_TO_ACTX_CLASS[args.actx])
+    main(
+        dim=args.dim,
+        degrees=[int(k.strip()) for k in args.degrees.split(",")],
+        actx_t=_NAME_TO_ACTX_CLASS[args.actx],
+    )

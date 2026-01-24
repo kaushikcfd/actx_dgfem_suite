@@ -1,23 +1,26 @@
-from pytools.obj_array import make_obj_array
-import numpy as np
-from arraycontext import make_loopy_program
+from dataclasses import dataclass
+from functools import cached_property
+
 import loopy as lp
-from meshmode.transform_metadata import DiscretizationAmbientDimAxisTag
-from meshmode.transform_metadata import DiscretizationDOFAxisTag
-from meshmode.transform_metadata import DiscretizationElementAxisTag
-from meshmode.transform_metadata import DiscretizationFaceAxisTag
-from meshmode.transform_metadata import DiscretizationTopologicalDimAxisTag
-from meshmode.transform_metadata import FirstAxisIsElementsTag
+import numpy as np
+from arraycontext import ArrayContext, is_array_container_type, make_loopy_program
+from arraycontext.container.traversal import (
+    rec_keyed_map_array_container,
+    rec_map_array_container,
+)
+from immutables import Map
+from meshmode.transform_metadata import (
+    DiscretizationAmbientDimAxisTag,
+    DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
+    DiscretizationFaceAxisTag,
+    DiscretizationTopologicalDimAxisTag,
+    FirstAxisIsElementsTag,
+)
 from pytato.tags import PrefixNamed
 from pytools import memoize_method
-from functools import cached_property
-from immutables import Map
-from arraycontext import ArrayContext, is_array_container_type
-from dataclasses import dataclass
-from arraycontext.container.traversal import (
-    rec_map_array_container,
-    rec_keyed_map_array_container,
-)
+from pytools.obj_array import make_obj_array
+
 from actx_dgfem_suite.utils import get_actx_dgfem_suite_path
 
 
@@ -29,7 +32,7 @@ def _rhs_inner(
     _actx_in_1_mass_0,
     _actx_in_1_momentum_0_0,
     _actx_in_1_momentum_1_0,
-    _actx_in_1_momentum_2_0
+    _actx_in_1_momentum_2_0,
 ):
     _pt_t_unit = make_loopy_program(
         "{ [_0, _1] : 0 <= _0 <= 637199 and 0 <= _1 <= 5 }",
@@ -163,12 +166,8 @@ def _rhs_inner(
     del _pt_tmp_2
     _pt_data_0 = actx.tag_axis(0, (DiscretizationDOFAxisTag(),), _pt_data_0)
     _pt_data_1 = actx.thaw(npzfile["_pt_data_1"])
-    _pt_data_1 = actx.tag(
-        (PrefixNamed(prefix="inv_metric_deriv_vol"),), _pt_data_1
-    )
-    _pt_data_1 = actx.tag_axis(
-        0, (DiscretizationAmbientDimAxisTag(),), _pt_data_1
-    )
+    _pt_data_1 = actx.tag((PrefixNamed(prefix="inv_metric_deriv_vol"),), _pt_data_1)
+    _pt_data_1 = actx.tag_axis(0, (DiscretizationAmbientDimAxisTag(),), _pt_data_1)
     _pt_data_1 = actx.tag_axis(
         1, (DiscretizationTopologicalDimAxisTag(),), _pt_data_1
     )
@@ -231,9 +230,7 @@ def _rhs_inner(
     _pt_tmp_21 = _pt_tmp_19 * _pt_tmp_8
     _pt_tmp_22 = actx.np.stack([_pt_tmp_6, _pt_tmp_20, _pt_tmp_21], axis=0)
     del _pt_tmp_8
-    _pt_tmp_4 = actx.einsum(
-        "ijk, jlm, ikm -> kl", _pt_tmp_5, _pt_data_2, _pt_tmp_22
-    )
+    _pt_tmp_4 = actx.einsum("ijk, jlm, ikm -> kl", _pt_tmp_5, _pt_data_2, _pt_tmp_22)
     del _pt_tmp_20, _pt_tmp_21, _pt_tmp_6
     _pt_tmp_4 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_4)
     del _pt_tmp_22
@@ -261,15 +258,11 @@ def _rhs_inner(
     _pt_data_7 = actx.thaw(npzfile["_pt_data_7"])
     _pt_data_7 = actx.tag((PrefixNamed(prefix="dof_pick_lists"),), _pt_data_7)
     _pt_data_8 = actx.thaw(npzfile["_pt_data_8"])
-    _pt_data_8 = actx.tag(
-        (PrefixNamed(prefix="dof_pick_list_indices"),), _pt_data_8
-    )
+    _pt_data_8 = actx.tag((PrefixNamed(prefix="dof_pick_list_indices"),), _pt_data_8)
     _pt_tmp_44 = (
         _pt_data_7[_pt_data_8]
         if actx.permits_advanced_indexing
-        else actx.call_loopy(_pt_t_unit, in_0=_pt_data_7, in_1=_pt_data_8)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit, in_0=_pt_data_7, in_1=_pt_data_8)["out"]
     )
     _pt_tmp_42 = (
         _actx_in_1_momentum_0_0[_pt_tmp_43, _pt_tmp_44]
@@ -375,9 +368,7 @@ def _rhs_inner(
     _pt_tmp_70 = (
         _pt_data_10[_pt_data_11]
         if actx.permits_advanced_indexing
-        else actx.call_loopy(_pt_t_unit_1, in_0=_pt_data_10, in_1=_pt_data_11)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_1, in_0=_pt_data_10, in_1=_pt_data_11)["out"]
     )
     _pt_tmp_68 = (
         _pt_tmp_41[_pt_tmp_69, _pt_tmp_70]
@@ -504,16 +495,12 @@ def _rhs_inner(
     _pt_data_12 = actx.tag(
         (PrefixNamed(prefix="normal_1_b_face_restr_interior"),), _pt_data_12
     )
-    _pt_data_12 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_data_12
-    )
+    _pt_data_12 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_data_12)
     _pt_data_12 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_data_12)
     _pt_tmp_119 = (
         _pt_tmp_120 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_120, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_120, _in1=_pt_data_12)["out"]
     )
     _pt_tmp_92 = _pt_tmp_93 * _pt_tmp_119
     _pt_tmp_91 = _pt_tmp_92 / 2
@@ -523,9 +510,7 @@ def _rhs_inner(
     _pt_tmp_35 = (
         _pt_tmp_36 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_36, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_36, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_37, _pt_tmp_91
     _pt_tmp_125 = _pt_tmp_60 * _pt_tmp_47
@@ -539,16 +524,12 @@ def _rhs_inner(
     _pt_data_13 = actx.tag(
         (PrefixNamed(prefix="normal_2_b_face_restr_interior"),), _pt_data_13
     )
-    _pt_data_13 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_data_13
-    )
+    _pt_data_13 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_data_13)
     _pt_data_13 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_data_13)
     _pt_tmp_129 = (
         _pt_tmp_120 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_120, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_120, _in1=_pt_data_13)["out"]
     )
     _pt_tmp_128 = _pt_tmp_93 * _pt_tmp_129
     _pt_tmp_127 = _pt_tmp_128 / 2
@@ -558,9 +539,7 @@ def _rhs_inner(
     _pt_tmp_121 = (
         _pt_tmp_122 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_122, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_122, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_123, _pt_tmp_127
     _pt_tmp_34 = _pt_tmp_35 + _pt_tmp_121
@@ -578,16 +557,12 @@ def _rhs_inner(
     _pt_data_14 = actx.tag(
         (PrefixNamed(prefix="normal_4_b_face_restr_interior"),), _pt_data_14
     )
-    _pt_data_14 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_data_14
-    )
+    _pt_data_14 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_data_14)
     _pt_data_14 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_data_14)
     _pt_tmp_138 = (
         _pt_tmp_120 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_120, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_120, _in1=_pt_data_14)["out"]
     )
     _pt_tmp_137 = _pt_tmp_93 * _pt_tmp_138
     del _pt_tmp_120
@@ -598,31 +573,23 @@ def _rhs_inner(
     _pt_tmp_130 = (
         _pt_tmp_131 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_131, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_131, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_132, _pt_tmp_136
     _pt_tmp_33 = _pt_tmp_34 + _pt_tmp_130
     del _pt_tmp_131
     _pt_data_15 = actx.thaw(npzfile["_pt_data_15"])
     del _pt_tmp_130, _pt_tmp_34
-    _pt_data_15 = actx.tag(
-        (PrefixNamed(prefix="from_el_indices"),), _pt_data_15
-    )
+    _pt_data_15 = actx.tag((PrefixNamed(prefix="from_el_indices"),), _pt_data_15)
     _pt_tmp_139 = actx.np.reshape(_pt_data_15, (648000, 1))
-    _pt_tmp_139 = actx.tag(
-        (PrefixNamed(prefix="from_el_indices"),), _pt_tmp_139
-    )
+    _pt_tmp_139 = actx.tag((PrefixNamed(prefix="from_el_indices"),), _pt_tmp_139)
     _pt_data_16 = actx.thaw(npzfile["_pt_data_16"])
     _pt_data_16 = actx.tag((PrefixNamed(prefix="dof_pick_lists"),), _pt_data_16)
     _pt_tmp_141 = actx.zeros((648000,), dtype=np.int32)
     _pt_tmp_140 = (
         _pt_data_16[_pt_tmp_141]
         if actx.permits_advanced_indexing
-        else actx.call_loopy(_pt_t_unit_4, in_0=_pt_data_16, in_1=_pt_tmp_141)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_4, in_0=_pt_data_16, in_1=_pt_tmp_141)["out"]
     )
     _pt_tmp_32 = (
         _pt_tmp_33[_pt_tmp_139, _pt_tmp_140]
@@ -634,9 +601,7 @@ def _rhs_inner(
     _pt_tmp_30 = (
         actx.np.where(_pt_tmp_31, _pt_tmp_32, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_32)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_32)["out"]
     )
     del _pt_tmp_33
     _pt_tmp_30 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_30)
@@ -647,21 +612,13 @@ def _rhs_inner(
     del _pt_tmp_30
     _pt_data_17 = actx.thaw(npzfile["_pt_data_17"])
     del _pt_tmp_29
-    _pt_data_17 = actx.tag(
-        (PrefixNamed(prefix="from_el_present"),), _pt_data_17
-    )
+    _pt_data_17 = actx.tag((PrefixNamed(prefix="from_el_present"),), _pt_data_17)
     _pt_tmp_145 = actx.np.reshape(_pt_data_17, (648000, 1))
-    _pt_tmp_145 = actx.tag(
-        (PrefixNamed(prefix="from_el_present"),), _pt_tmp_145
-    )
+    _pt_tmp_145 = actx.tag((PrefixNamed(prefix="from_el_present"),), _pt_tmp_145)
     _pt_data_18 = actx.thaw(npzfile["_pt_data_18"])
-    _pt_data_18 = actx.tag(
-        (PrefixNamed(prefix="from_el_indices"),), _pt_data_18
-    )
+    _pt_data_18 = actx.tag((PrefixNamed(prefix="from_el_indices"),), _pt_data_18)
     _pt_tmp_157 = actx.np.reshape(_pt_data_18, (10800, 1))
-    _pt_tmp_157 = actx.tag(
-        (PrefixNamed(prefix="from_el_indices"),), _pt_tmp_157
-    )
+    _pt_tmp_157 = actx.tag((PrefixNamed(prefix="from_el_indices"),), _pt_tmp_157)
     _pt_data_19 = actx.thaw(npzfile["_pt_data_19"])
     _pt_data_19 = actx.tag((PrefixNamed(prefix="dof_pick_lists"),), _pt_data_19)
     _pt_data_20 = actx.thaw(npzfile["_pt_data_20"])
@@ -671,9 +628,7 @@ def _rhs_inner(
     _pt_tmp_158 = (
         _pt_data_19[_pt_data_20]
         if actx.permits_advanced_indexing
-        else actx.call_loopy(_pt_t_unit_7, in_0=_pt_data_19, in_1=_pt_data_20)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_7, in_0=_pt_data_19, in_1=_pt_data_20)["out"]
     )
     _pt_tmp_156 = (
         _actx_in_1_momentum_0_0[_pt_tmp_157, _pt_tmp_158]
@@ -685,9 +640,7 @@ def _rhs_inner(
             in_2=_pt_tmp_158,
         )["out"]
     )
-    _pt_tmp_156 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_156
-    )
+    _pt_tmp_156 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_156)
     _pt_tmp_156 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_156)
     _pt_tmp_155 = 0 + _pt_tmp_156
     _pt_tmp_160 = (
@@ -701,9 +654,7 @@ def _rhs_inner(
         )["out"]
     )
     del _pt_tmp_156
-    _pt_tmp_160 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_160
-    )
+    _pt_tmp_160 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_160)
     _pt_tmp_160 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_160)
     _pt_tmp_159 = 0 + _pt_tmp_160
     _pt_tmp_154 = _pt_tmp_155 / _pt_tmp_159
@@ -718,9 +669,7 @@ def _rhs_inner(
             in_2=_pt_tmp_158,
         )["out"]
     )
-    _pt_tmp_163 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_163
-    )
+    _pt_tmp_163 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_163)
     _pt_tmp_163 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_163)
     _pt_tmp_162 = 0 + _pt_tmp_163
     _pt_tmp_170 = _pt_tmp_155 * _pt_tmp_154
@@ -737,9 +686,7 @@ def _rhs_inner(
         )["out"]
     )
     del _pt_tmp_170
-    _pt_tmp_173 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_173
-    )
+    _pt_tmp_173 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_173)
     _pt_tmp_173 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_173)
     _pt_tmp_172 = 0 + _pt_tmp_173
     _pt_tmp_174 = _pt_tmp_172 / _pt_tmp_159
@@ -757,9 +704,7 @@ def _rhs_inner(
         )["out"]
     )
     del _pt_tmp_169, _pt_tmp_171
-    _pt_tmp_177 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_177
-    )
+    _pt_tmp_177 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_177)
     del _pt_tmp_157, _pt_tmp_158
     _pt_tmp_177 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_177)
     _pt_tmp_176 = 0 + _pt_tmp_177
@@ -778,45 +723,33 @@ def _rhs_inner(
     _pt_tmp_153 = _pt_tmp_154 * _pt_tmp_161
     _pt_data_21 = actx.thaw(npzfile["_pt_data_21"])
     _pt_data_21 = actx.tag((PrefixNamed(prefix="normal_1_b_all"),), _pt_data_21)
-    _pt_data_21 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_data_21
-    )
+    _pt_data_21 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_data_21)
     _pt_data_21 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_data_21)
     _pt_tmp_183 = 2.0 * _pt_data_21
     _pt_tmp_186 = (
         _pt_tmp_155 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_155, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_155, _in1=_pt_data_21)["out"]
     )
     _pt_data_22 = actx.thaw(npzfile["_pt_data_22"])
     _pt_data_22 = actx.tag((PrefixNamed(prefix="normal_2_b_all"),), _pt_data_22)
-    _pt_data_22 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_data_22
-    )
+    _pt_data_22 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_data_22)
     _pt_data_22 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_data_22)
     _pt_tmp_187 = (
         _pt_tmp_172 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_172, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_172, _in1=_pt_data_22)["out"]
     )
     _pt_tmp_185 = _pt_tmp_186 + _pt_tmp_187
     _pt_data_23 = actx.thaw(npzfile["_pt_data_23"])
     del _pt_tmp_186, _pt_tmp_187
     _pt_data_23 = actx.tag((PrefixNamed(prefix="normal_4_b_all"),), _pt_data_23)
-    _pt_data_23 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_data_23
-    )
+    _pt_data_23 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_data_23)
     _pt_data_23 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_data_23)
     _pt_tmp_188 = (
         _pt_tmp_176 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_176, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_176, _in1=_pt_data_23)["out"]
     )
     _pt_tmp_184 = _pt_tmp_185 + _pt_tmp_188
     _pt_tmp_182 = (
@@ -919,9 +852,7 @@ def _rhs_inner(
     _pt_tmp_235 = (
         _pt_tmp_236 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_236, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_236, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_162
     _pt_tmp_208 = _pt_tmp_209 * _pt_tmp_235
@@ -932,9 +863,7 @@ def _rhs_inner(
     _pt_tmp_149 = (
         _pt_tmp_150 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_150, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_150, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_151, _pt_tmp_207
     _pt_tmp_241 = _pt_tmp_174 * _pt_tmp_161
@@ -946,9 +875,7 @@ def _rhs_inner(
     _pt_tmp_245 = (
         _pt_tmp_236 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_236, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_236, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_240
     _pt_tmp_244 = _pt_tmp_209 * _pt_tmp_245
@@ -959,9 +886,7 @@ def _rhs_inner(
     _pt_tmp_237 = (
         _pt_tmp_238 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_238, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_238, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_239, _pt_tmp_243
     _pt_tmp_148 = _pt_tmp_149 + _pt_tmp_237
@@ -977,9 +902,7 @@ def _rhs_inner(
     _pt_tmp_254 = (
         _pt_tmp_236 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_236, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_236, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_249
     _pt_tmp_253 = _pt_tmp_209 * _pt_tmp_254
@@ -991,30 +914,22 @@ def _rhs_inner(
     _pt_tmp_246 = (
         _pt_tmp_247 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_247, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_247, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_248, _pt_tmp_252
     _pt_tmp_147 = _pt_tmp_148 + _pt_tmp_246
     del _pt_tmp_247
     _pt_data_24 = actx.thaw(npzfile["_pt_data_24"])
     del _pt_tmp_148, _pt_tmp_246
-    _pt_data_24 = actx.tag(
-        (PrefixNamed(prefix="from_el_indices"),), _pt_data_24
-    )
+    _pt_data_24 = actx.tag((PrefixNamed(prefix="from_el_indices"),), _pt_data_24)
     _pt_tmp_255 = actx.np.reshape(_pt_data_24, (648000, 1))
-    _pt_tmp_255 = actx.tag(
-        (PrefixNamed(prefix="from_el_indices"),), _pt_tmp_255
-    )
+    _pt_tmp_255 = actx.tag((PrefixNamed(prefix="from_el_indices"),), _pt_tmp_255)
     _pt_data_25 = actx.thaw(npzfile["_pt_data_25"])
     _pt_data_25 = actx.tag((PrefixNamed(prefix="dof_pick_lists"),), _pt_data_25)
     _pt_tmp_256 = (
         _pt_data_25[_pt_tmp_141]
         if actx.permits_advanced_indexing
-        else actx.call_loopy(_pt_t_unit_4, in_0=_pt_data_25, in_1=_pt_tmp_141)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_4, in_0=_pt_data_25, in_1=_pt_tmp_141)["out"]
     )
     _pt_tmp_146 = (
         _pt_tmp_147[_pt_tmp_255, _pt_tmp_256]
@@ -1027,14 +942,10 @@ def _rhs_inner(
     _pt_tmp_144 = (
         actx.np.where(_pt_tmp_145, _pt_tmp_146, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_146)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_146)["out"]
     )
     del _pt_tmp_147
-    _pt_tmp_144 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_144
-    )
+    _pt_tmp_144 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_144)
     del _pt_tmp_146
     _pt_tmp_144 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_144)
     _pt_tmp_143 = 0 + _pt_tmp_144
@@ -1076,9 +987,7 @@ def _rhs_inner(
     _pt_tmp_276 = (
         _pt_tmp_277 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_277, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_277, _in1=_pt_data_12)["out"]
     )
     _pt_tmp_275 = _pt_tmp_93 * _pt_tmp_276
     _pt_tmp_274 = _pt_tmp_275 / 2
@@ -1088,9 +997,7 @@ def _rhs_inner(
     _pt_tmp_270 = (
         _pt_tmp_271 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_271, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_271, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_272, _pt_tmp_274
     _pt_tmp_281 = _pt_tmp_58 + _pt_tmp_84
@@ -1099,9 +1006,7 @@ def _rhs_inner(
     _pt_tmp_284 = (
         _pt_tmp_277 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_277, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_277, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_281
     _pt_tmp_283 = _pt_tmp_93 * _pt_tmp_284
@@ -1112,9 +1017,7 @@ def _rhs_inner(
     _pt_tmp_278 = (
         _pt_tmp_279 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_279, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_279, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_280, _pt_tmp_282
     _pt_tmp_269 = _pt_tmp_270 + _pt_tmp_278
@@ -1125,9 +1028,7 @@ def _rhs_inner(
     _pt_tmp_291 = (
         _pt_tmp_277 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_277, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_277, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_288
     _pt_tmp_290 = _pt_tmp_93 * _pt_tmp_291
@@ -1139,9 +1040,7 @@ def _rhs_inner(
     _pt_tmp_285 = (
         _pt_tmp_286 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_286, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_286, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_287, _pt_tmp_289
     _pt_tmp_268 = _pt_tmp_269 + _pt_tmp_285
@@ -1157,14 +1056,10 @@ def _rhs_inner(
     _pt_tmp_266 = (
         actx.np.where(_pt_tmp_31, _pt_tmp_267, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_267)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_267)["out"]
     )
     del _pt_tmp_268
-    _pt_tmp_266 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_266
-    )
+    _pt_tmp_266 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_266)
     del _pt_tmp_267
     _pt_tmp_266 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_266)
     _pt_tmp_265 = 0 + _pt_tmp_266
@@ -1178,9 +1073,7 @@ def _rhs_inner(
     _pt_tmp_304 = (
         _pt_tmp_305 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_305, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_305, _in1=_pt_data_21)["out"]
     )
     _pt_tmp_303 = _pt_tmp_209 * _pt_tmp_304
     _pt_tmp_302 = _pt_tmp_303 / 2
@@ -1190,9 +1083,7 @@ def _rhs_inner(
     _pt_tmp_298 = (
         _pt_tmp_299 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_299, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_299, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_300, _pt_tmp_302
     _pt_tmp_309 = _pt_tmp_172 + _pt_tmp_198
@@ -1201,9 +1092,7 @@ def _rhs_inner(
     _pt_tmp_312 = (
         _pt_tmp_305 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_305, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_305, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_309
     _pt_tmp_311 = _pt_tmp_209 * _pt_tmp_312
@@ -1214,9 +1103,7 @@ def _rhs_inner(
     _pt_tmp_306 = (
         _pt_tmp_307 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_307, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_307, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_308, _pt_tmp_310
     _pt_tmp_297 = _pt_tmp_298 + _pt_tmp_306
@@ -1227,9 +1114,7 @@ def _rhs_inner(
     _pt_tmp_319 = (
         _pt_tmp_305 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_305, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_305, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_316
     _pt_tmp_318 = _pt_tmp_209 * _pt_tmp_319
@@ -1241,9 +1126,7 @@ def _rhs_inner(
     _pt_tmp_313 = (
         _pt_tmp_314 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_314, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_314, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_315, _pt_tmp_317
     _pt_tmp_296 = _pt_tmp_297 + _pt_tmp_313
@@ -1259,14 +1142,10 @@ def _rhs_inner(
     _pt_tmp_294 = (
         actx.np.where(_pt_tmp_145, _pt_tmp_295, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_295)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_295)["out"]
     )
     del _pt_tmp_296
-    _pt_tmp_294 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_294
-    )
+    _pt_tmp_294 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_294)
     del _pt_tmp_295
     _pt_tmp_294 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_294)
     _pt_tmp_293 = 0 + _pt_tmp_294
@@ -1284,9 +1163,7 @@ def _rhs_inner(
     _pt_tmp_261 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_261)
     del _pt_tmp_262
     _pt_tmp_258 = _pt_tmp_259 - _pt_tmp_261
-    _pt_tmp_257 = actx.einsum(
-        "i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_258
-    )
+    _pt_tmp_257 = actx.einsum("i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_258)
     del _pt_tmp_259, _pt_tmp_261
     _pt_tmp_257 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_257)
     del _pt_tmp_258
@@ -1333,9 +1210,7 @@ def _rhs_inner(
     _pt_tmp_356 = (
         _pt_tmp_357 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_357, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_357, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_41, _pt_tmp_67
     _pt_tmp_355 = _pt_tmp_93 * _pt_tmp_356
@@ -1346,9 +1221,7 @@ def _rhs_inner(
     _pt_tmp_344 = (
         _pt_tmp_345 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_345, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_345, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_346, _pt_tmp_354
     _pt_tmp_364 = _pt_tmp_40 * _pt_tmp_60
@@ -1372,9 +1245,7 @@ def _rhs_inner(
     _pt_tmp_372 = (
         _pt_tmp_357 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_357, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_357, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_361
     _pt_tmp_371 = _pt_tmp_93 * _pt_tmp_372
@@ -1385,9 +1256,7 @@ def _rhs_inner(
     _pt_tmp_358 = (
         _pt_tmp_359 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_359, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_359, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_360, _pt_tmp_370
     _pt_tmp_343 = _pt_tmp_344 + _pt_tmp_358
@@ -1409,9 +1278,7 @@ def _rhs_inner(
     _pt_tmp_385 = (
         _pt_tmp_357 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_357, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_357, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_376
     _pt_tmp_384 = _pt_tmp_93 * _pt_tmp_385
@@ -1423,9 +1290,7 @@ def _rhs_inner(
     _pt_tmp_373 = (
         _pt_tmp_374 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_374, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_374, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_375, _pt_tmp_383
     _pt_tmp_342 = _pt_tmp_343 + _pt_tmp_373
@@ -1441,14 +1306,10 @@ def _rhs_inner(
     _pt_tmp_340 = (
         actx.np.where(_pt_tmp_31, _pt_tmp_341, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_341)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_341)["out"]
     )
     del _pt_tmp_342
-    _pt_tmp_340 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_340
-    )
+    _pt_tmp_340 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_340)
     del _pt_tmp_341
     _pt_tmp_340 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_340)
     _pt_tmp_339 = 0 + _pt_tmp_340
@@ -1473,9 +1334,7 @@ def _rhs_inner(
     _pt_tmp_404 = (
         _pt_tmp_405 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_405, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_405, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_155, _pt_tmp_181
     _pt_tmp_403 = _pt_tmp_209 * _pt_tmp_404
@@ -1486,9 +1345,7 @@ def _rhs_inner(
     _pt_tmp_392 = (
         _pt_tmp_393 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_393, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_393, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_394, _pt_tmp_402
     _pt_tmp_412 = _pt_tmp_154 * _pt_tmp_174
@@ -1512,9 +1369,7 @@ def _rhs_inner(
     _pt_tmp_420 = (
         _pt_tmp_405 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_405, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_405, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_409
     _pt_tmp_419 = _pt_tmp_209 * _pt_tmp_420
@@ -1525,9 +1380,7 @@ def _rhs_inner(
     _pt_tmp_406 = (
         _pt_tmp_407 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_407, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_407, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_408, _pt_tmp_418
     _pt_tmp_391 = _pt_tmp_392 + _pt_tmp_406
@@ -1549,9 +1402,7 @@ def _rhs_inner(
     _pt_tmp_433 = (
         _pt_tmp_405 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_405, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_405, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_424
     _pt_tmp_432 = _pt_tmp_209 * _pt_tmp_433
@@ -1563,9 +1414,7 @@ def _rhs_inner(
     _pt_tmp_421 = (
         _pt_tmp_422 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_422, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_422, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_423, _pt_tmp_431
     _pt_tmp_390 = _pt_tmp_391 + _pt_tmp_421
@@ -1581,14 +1430,10 @@ def _rhs_inner(
     _pt_tmp_388 = (
         actx.np.where(_pt_tmp_145, _pt_tmp_389, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_389)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_389)["out"]
     )
     del _pt_tmp_390
-    _pt_tmp_388 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_388
-    )
+    _pt_tmp_388 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_388)
     del _pt_tmp_389
     _pt_tmp_388 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_388)
     _pt_tmp_387 = 0 + _pt_tmp_388
@@ -1606,9 +1451,7 @@ def _rhs_inner(
     _pt_tmp_335 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_335)
     del _pt_tmp_336
     _pt_tmp_321 = _pt_tmp_322 - _pt_tmp_335
-    _pt_tmp_320 = actx.einsum(
-        "i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_321
-    )
+    _pt_tmp_320 = actx.einsum("i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_321)
     del _pt_tmp_322, _pt_tmp_335
     _pt_tmp_320 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_320)
     del _pt_tmp_321
@@ -1652,9 +1495,7 @@ def _rhs_inner(
     _pt_tmp_468 = (
         _pt_tmp_469 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_469, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_469, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_58, _pt_tmp_84
     _pt_tmp_467 = _pt_tmp_93 * _pt_tmp_468
@@ -1665,9 +1506,7 @@ def _rhs_inner(
     _pt_tmp_456 = (
         _pt_tmp_457 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_457, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_457, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_458, _pt_tmp_466
     _pt_tmp_475 = _pt_tmp_45 * _pt_tmp_101
@@ -1685,9 +1524,7 @@ def _rhs_inner(
     _pt_tmp_480 = (
         _pt_tmp_469 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_469, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_469, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_473
     _pt_tmp_479 = _pt_tmp_93 * _pt_tmp_480
@@ -1698,9 +1535,7 @@ def _rhs_inner(
     _pt_tmp_470 = (
         _pt_tmp_471 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_471, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_471, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_472, _pt_tmp_478
     _pt_tmp_455 = _pt_tmp_456 + _pt_tmp_470
@@ -1722,9 +1557,7 @@ def _rhs_inner(
     _pt_tmp_493 = (
         _pt_tmp_469 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_469, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_469, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_484
     _pt_tmp_492 = _pt_tmp_93 * _pt_tmp_493
@@ -1736,9 +1569,7 @@ def _rhs_inner(
     _pt_tmp_481 = (
         _pt_tmp_482 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_482, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_482, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_483, _pt_tmp_491
     _pt_tmp_454 = _pt_tmp_455 + _pt_tmp_481
@@ -1754,14 +1585,10 @@ def _rhs_inner(
     _pt_tmp_452 = (
         actx.np.where(_pt_tmp_31, _pt_tmp_453, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_453)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_453)["out"]
     )
     del _pt_tmp_454
-    _pt_tmp_452 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_452
-    )
+    _pt_tmp_452 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_452)
     del _pt_tmp_453
     _pt_tmp_452 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_452)
     _pt_tmp_451 = 0 + _pt_tmp_452
@@ -1786,9 +1613,7 @@ def _rhs_inner(
     _pt_tmp_512 = (
         _pt_tmp_513 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_513, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_513, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_172, _pt_tmp_198
     _pt_tmp_511 = _pt_tmp_209 * _pt_tmp_512
@@ -1799,9 +1624,7 @@ def _rhs_inner(
     _pt_tmp_500 = (
         _pt_tmp_501 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_501, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_501, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_502, _pt_tmp_510
     _pt_tmp_519 = _pt_tmp_159 * _pt_tmp_217
@@ -1819,9 +1642,7 @@ def _rhs_inner(
     _pt_tmp_524 = (
         _pt_tmp_513 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_513, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_513, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_517
     _pt_tmp_523 = _pt_tmp_209 * _pt_tmp_524
@@ -1832,9 +1653,7 @@ def _rhs_inner(
     _pt_tmp_514 = (
         _pt_tmp_515 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_515, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_515, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_516, _pt_tmp_522
     _pt_tmp_499 = _pt_tmp_500 + _pt_tmp_514
@@ -1856,9 +1675,7 @@ def _rhs_inner(
     _pt_tmp_537 = (
         _pt_tmp_513 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_513, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_513, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_528
     _pt_tmp_536 = _pt_tmp_209 * _pt_tmp_537
@@ -1870,9 +1687,7 @@ def _rhs_inner(
     _pt_tmp_525 = (
         _pt_tmp_526 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_526, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_526, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_527, _pt_tmp_535
     _pt_tmp_498 = _pt_tmp_499 + _pt_tmp_525
@@ -1888,14 +1703,10 @@ def _rhs_inner(
     _pt_tmp_496 = (
         actx.np.where(_pt_tmp_145, _pt_tmp_497, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_497)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_497)["out"]
     )
     del _pt_tmp_498
-    _pt_tmp_496 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_496
-    )
+    _pt_tmp_496 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_496)
     del _pt_tmp_497
     _pt_tmp_496 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_496)
     _pt_tmp_495 = 0 + _pt_tmp_496
@@ -1913,9 +1724,7 @@ def _rhs_inner(
     _pt_tmp_447 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_447)
     del _pt_tmp_448
     _pt_tmp_435 = _pt_tmp_436 - _pt_tmp_447
-    _pt_tmp_434 = actx.einsum(
-        "i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_435
-    )
+    _pt_tmp_434 = actx.einsum("i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_435)
     del _pt_tmp_436, _pt_tmp_447
     _pt_tmp_434 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_434)
     del _pt_tmp_435
@@ -1964,9 +1773,7 @@ def _rhs_inner(
     _pt_tmp_572 = (
         _pt_tmp_573 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_573, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_573, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_62, _pt_tmp_88
     _pt_tmp_571 = _pt_tmp_93 * _pt_tmp_572
@@ -1977,9 +1784,7 @@ def _rhs_inner(
     _pt_tmp_560 = (
         _pt_tmp_561 * _pt_data_12
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_561, _in1=_pt_data_12)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_561, _in1=_pt_data_12)["out"]
     )
     del _pt_tmp_562, _pt_tmp_570
     _pt_tmp_580 = _pt_tmp_64 * _pt_tmp_60
@@ -2001,9 +1806,7 @@ def _rhs_inner(
     _pt_tmp_586 = (
         _pt_tmp_573 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_573, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_573, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_577
     _pt_tmp_585 = _pt_tmp_93 * _pt_tmp_586
@@ -2014,9 +1817,7 @@ def _rhs_inner(
     _pt_tmp_574 = (
         _pt_tmp_575 * _pt_data_13
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_575, _in1=_pt_data_13)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_575, _in1=_pt_data_13)["out"]
     )
     del _pt_tmp_576, _pt_tmp_584
     _pt_tmp_559 = _pt_tmp_560 + _pt_tmp_574
@@ -2036,9 +1837,7 @@ def _rhs_inner(
     _pt_tmp_597 = (
         _pt_tmp_573 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_573, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_573, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_590
     _pt_tmp_596 = _pt_tmp_93 * _pt_tmp_597
@@ -2050,9 +1849,7 @@ def _rhs_inner(
     _pt_tmp_587 = (
         _pt_tmp_588 * _pt_data_14
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_588, _in1=_pt_data_14)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_3, _in0=_pt_tmp_588, _in1=_pt_data_14)["out"]
     )
     del _pt_tmp_589, _pt_tmp_595
     _pt_tmp_558 = _pt_tmp_559 + _pt_tmp_587
@@ -2068,14 +1865,10 @@ def _rhs_inner(
     _pt_tmp_556 = (
         actx.np.where(_pt_tmp_31, _pt_tmp_557, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_557)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_31, _in1=_pt_tmp_557)["out"]
     )
     del _pt_tmp_139, _pt_tmp_140, _pt_tmp_558
-    _pt_tmp_556 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_556
-    )
+    _pt_tmp_556 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_556)
     del _pt_tmp_31, _pt_tmp_557
     _pt_tmp_556 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_556)
     _pt_tmp_555 = 0 + _pt_tmp_556
@@ -2102,9 +1895,7 @@ def _rhs_inner(
     _pt_tmp_616 = (
         _pt_tmp_617 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_617, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_617, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_176, _pt_tmp_203
     _pt_tmp_615 = _pt_tmp_209 * _pt_tmp_616
@@ -2115,9 +1906,7 @@ def _rhs_inner(
     _pt_tmp_604 = (
         _pt_tmp_605 * _pt_data_21
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_605, _in1=_pt_data_21)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_605, _in1=_pt_data_21)["out"]
     )
     del _pt_tmp_606, _pt_tmp_614
     _pt_tmp_624 = _pt_tmp_178 * _pt_tmp_174
@@ -2139,9 +1928,7 @@ def _rhs_inner(
     _pt_tmp_630 = (
         _pt_tmp_617 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_617, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_617, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_621
     _pt_tmp_629 = _pt_tmp_209 * _pt_tmp_630
@@ -2152,9 +1939,7 @@ def _rhs_inner(
     _pt_tmp_618 = (
         _pt_tmp_619 * _pt_data_22
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_619, _in1=_pt_data_22)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_619, _in1=_pt_data_22)["out"]
     )
     del _pt_tmp_620, _pt_tmp_628
     _pt_tmp_603 = _pt_tmp_604 + _pt_tmp_618
@@ -2174,9 +1959,7 @@ def _rhs_inner(
     _pt_tmp_641 = (
         _pt_tmp_617 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_617, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_617, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_634
     _pt_tmp_640 = _pt_tmp_209 * _pt_tmp_641
@@ -2188,9 +1971,7 @@ def _rhs_inner(
     _pt_tmp_631 = (
         _pt_tmp_632 * _pt_data_23
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_632, _in1=_pt_data_23)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_9, _in0=_pt_tmp_632, _in1=_pt_data_23)["out"]
     )
     del _pt_tmp_633, _pt_tmp_639
     _pt_tmp_602 = _pt_tmp_603 + _pt_tmp_631
@@ -2206,14 +1987,10 @@ def _rhs_inner(
     _pt_tmp_600 = (
         actx.np.where(_pt_tmp_145, _pt_tmp_601, 0)
         if actx.supports_nonscalar_broadcasting
-        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_601)[
-            "out"
-        ]
+        else actx.call_loopy(_pt_t_unit_6, _in0=_pt_tmp_145, _in1=_pt_tmp_601)["out"]
     )
     del _pt_tmp_255, _pt_tmp_256, _pt_tmp_602
-    _pt_tmp_600 = actx.tag_axis(
-        0, (DiscretizationElementAxisTag(),), _pt_tmp_600
-    )
+    _pt_tmp_600 = actx.tag_axis(0, (DiscretizationElementAxisTag(),), _pt_tmp_600)
     del _pt_tmp_145, _pt_tmp_601
     _pt_tmp_600 = actx.tag_axis(1, (DiscretizationDOFAxisTag(),), _pt_tmp_600)
     _pt_tmp_599 = 0 + _pt_tmp_600
@@ -2231,9 +2008,7 @@ def _rhs_inner(
     _pt_tmp_551 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_551)
     del _pt_tmp_24, _pt_tmp_552
     _pt_tmp_539 = _pt_tmp_540 - _pt_tmp_551
-    _pt_tmp_538 = actx.einsum(
-        "i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_539
-    )
+    _pt_tmp_538 = actx.einsum("i, jk, ik -> ij", _pt_tmp_1, _pt_data_0, _pt_tmp_539)
     del _pt_tmp_540, _pt_tmp_551
     _pt_tmp_538 = actx.tag((FirstAxisIsElementsTag(),), _pt_tmp_538)
     del _pt_tmp_1, _pt_tmp_539
@@ -2250,8 +2025,9 @@ class RHSInvoker:
 
     @cached_property
     def npzfile(self):
-        from immutables import Map
         import os
+
+        from immutables import Map
 
         kw_to_ary = np.load(
             os.path.join(
@@ -2276,8 +2052,9 @@ class RHSInvoker:
     @memoize_method
     def _get_output_template(self):
         import os
-        import pytato as pt
         from pickle import load
+
+        import pytato as pt
         from meshmode.dof_array import array_context_for_pickling
 
         fpath = os.path.join(
@@ -2292,9 +2069,7 @@ class RHSInvoker:
 
         # convert to symbolic array to not free the memory corresponding to
         # output_template
-        return rec_map_array_container(
-            _convert_to_symbolic_array, output_template
-        )
+        return rec_map_array_container(_convert_to_symbolic_array, output_template)
 
     @memoize_method
     def _get_key_to_pos_in_output_template(self):
@@ -2332,8 +2107,8 @@ class RHSInvoker:
 
     def __call__(self, *args, **kwargs):
         from arraycontext.impl.pytato.compile import (
-            _get_arg_id_to_arg_and_arg_id_to_descr,
             _ary_container_key_stringifier,
+            _get_arg_id_to_arg_and_arg_id_to_descr,
         )
 
         arg_id_to_arg, _ = _get_arg_id_to_arg_and_arg_id_to_descr(args, kwargs)

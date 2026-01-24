@@ -1,7 +1,6 @@
-import tempfile
-import subprocess
 import os
-
+import subprocess
+import tempfile
 
 box_link = "https://uofi.box.com/shared/static/l0velh8co5yo57g099v16lm60m466777.zip"
 
@@ -44,21 +43,25 @@ def main() -> None:
             for order in orders:
                 case_dir = f"{eqn}_{dim}D_P{order}"
                 literals_file_src = os.path.join(
-                    tmpdir, "actx_dgfem_suite_data", case_dir, "literals.npz")
-                literals_file_dst = os.path.join(
-                    "suite", case_dir, "literals.npz")
+                    tmpdir, "actx_dgfem_suite_data", case_dir, "literals.npz"
+                )
+                literals_file_dst = os.path.join("suite", case_dir, "literals.npz")
                 move_file(src_loc=literals_file_src, dst_loc=literals_file_dst)
 
                 ref_outputs_file_src = os.path.join(
-                    tmpdir, "actx_dgfem_suite_data", case_dir, "ref_outputs.pkl")
+                    tmpdir, "actx_dgfem_suite_data", case_dir, "ref_outputs.pkl"
+                )
                 ref_outputs_file_dst = os.path.join(
-                    "suite", case_dir, "ref_outputs.pkl")
+                    "suite", case_dir, "ref_outputs.pkl"
+                )
                 move_file(src_loc=ref_outputs_file_src, dst_loc=ref_outputs_file_dst)
 
                 ref_input_file_src = os.path.join(
-                    tmpdir, "actx_dgfem_suite_data", case_dir, "ref_input_args.pkl")
+                    tmpdir, "actx_dgfem_suite_data", case_dir, "ref_input_args.pkl"
+                )
                 ref_input_file_dst = os.path.join(
-                    "suite", case_dir, "ref_input_args.pkl")
+                    "suite", case_dir, "ref_input_args.pkl"
+                )
                 move_file(src_loc=ref_input_file_src, dst_loc=ref_input_file_dst)
 
     remove_file(zipfile_loc)

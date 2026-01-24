@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "arraycontext",
     "feinsum",
+    "grudge",
     "loopy",
     "meshmode",
     "pyopencl",
@@ -36,6 +37,7 @@ dependencies = [
 preview = true
 line-length = 85
 exclude = [
+    "actx_dgfem_suite/suite_generators/cns.py" # pulls lots of deps (mirgecom, etc.) -> better to just avoid it
 ]
 
 [tool.ruff.lint]
@@ -58,7 +60,7 @@ extend-select = [
   "TC",
 ]
 
-ignore = ["RUF067", "B023", "C901", "N806"]
+ignore = ["RUF052", "RUF067", "B023", "C901", "N806"]
 
 [tool.black]
 line-length = 85
