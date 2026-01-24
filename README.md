@@ -1,4 +1,4 @@
-## dg_benchmarks
+## actx_dgfem_suite
 
 Run DG-FEM benchmarks for different
 [arraycontext](https://github.com/inducer/arraycontext/) implementations. These
@@ -14,26 +14,26 @@ $ # Install Mirge-Com
 $ git clone https://github.com/illinois-ceesd/emirge
 $ cd emirge; ./install.sh
 $ cd ..; source emirge/miniforge/bin/activate ceesd
-$ git clone https://github.com/kaushikcfd/dg_benchmarks
-$ cd dg_benchmarks; pip install -e .
+$ git clone https://github.com/kaushikcfd/actx_dgfem_suite
+$ cd actx_dgfem_suite; pip install -e .
 ```
 
 Supporting literal data is made available via pickled files. Run the following
 commands to get the pickle blobs for the current suite.
 
 ```console
-$ cd dg_benchmarks
+$ cd actx_dgfem_suite
 $ python download_pickled_files.py
 ```
 
 **WARNING:** The above command downloads pickled files approx. 800MB in size. To avoid network
-traffic and for better security practices, see `dg_benchmarks/suite_generators.py` to generate
+traffic and for better security practices, see `actx_dgfem_suite/suite_generators.py` to generate
 them.
 
 
 ## HOWTO: Run the timing suite
 ```console
-$ cd dg_benchmarks
+$ cd actx_dgfem_suite
 $ python -O  run.py --equations "wave,euler,cns_without_chem" \
                     --degrees "1,2,3,4" \
                     --dims "3" \
@@ -86,7 +86,7 @@ for your `arraycontext` type.
 
 ## HOWTO: Add new tests to the suite
 
-Implement the new operators in `dg_benchmarks/suite/`, invoke
+Implement the new operators in `actx_dgfem_suite/suite/`, invoke
 
 ```console
 $ python -m suite_generators -h

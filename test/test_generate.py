@@ -1,4 +1,4 @@
-from dg_benchmarks.codegen import SuiteGeneratingArraycontext
+from actx_dgfem_suite.codegen import SuiteGeneratingArraycontext
 from pyopencl.tools import pytest_generate_tests_for_pyopencl \
     as pytest_generate_tests  # noqa: F401
 import pyopencl as cl

@@ -58,5 +58,5 @@ MANIFEST
 \#*\#
 .\#*
 
-dg_benchmarks/*/*/*.pkl
-dg_benchmarks/*/*/*.npz
+actx_dgfem_suite/*/*/*.pkl
+actx_dgfem_suite/*/*/*.npz
