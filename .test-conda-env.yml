@@ -1,0 +1,12 @@
+name: actx-dgfem-env
+channels:
+- conda-forge
+- nodefaults
+dependencies:
+- python=3
+- islpy
+- numpy
+- jax
+- jaxlib=*=*cuda*
+- ocl-icd
+- pip

@@ -3,22 +3,20 @@
 Run DG-FEM benchmarks for different
 [arraycontext](https://github.com/inducer/arraycontext/) implementations. These
 benchmarks generate `arraycontext`-based Python code for the operators' RHS to
-avoid time spent in the setup phases of the driver (mesh gen, computing
-geometry factors, etc.) and evaluate the performance of the generated code.
+avoid time spent in the setup phases of the driver (mesh gen, computing geometry
+factors, etc.) and evaluate the performance of the generated code.
 
 
 ## Installation
 
 ```console
-$ # Install Mirge-Com
-$ git clone https://github.com/illinois-ceesd/emirge
-$ cd emirge; ./install.sh
-$ cd ..; source emirge/miniforge/bin/activate ceesd
-$ git clone https://github.com/kaushikcfd/actx_dgfem_suite
-$ cd actx_dgfem_suite; pip install -e .
+$ git clone https://github.com/kaushikcfd/actx_dgfem_suite && cd actx_dgfem_suite
+$ conda env create -f .test-conda-env.yml
+$ conda activate actx-dgfem-env
+$ pip install -e .
 ```
 
-Supporting literal data is made available via pickled files. Run the following
+Supporting input data is made available via pickled files. Run the following
 commands to get the pickle blobs for the current suite.
 
 ```console
