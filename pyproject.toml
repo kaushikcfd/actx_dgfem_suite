@@ -30,6 +30,7 @@ dependencies = [
     "loopy",
     "meshmode",
     "pyopencl",
+    "pytato",
 ]
 
 
