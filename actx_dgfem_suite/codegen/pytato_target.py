@@ -324,7 +324,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames]):
         if isinstance(hlo, FullOp):
             if hlo.fill_value == 0:
                 rhs = ast.Call(
-                    ast.Attribute(ast.Name(self.actx_arg_name), "zeros"),
+                    ast.Attribute(self.actx_np, "zeros"),
                     args=[ast.Tuple(elts=[ast.Constant(d) for d in expr.shape])],
                     keywords=[
                         ast.keyword(
@@ -338,7 +338,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames]):
             else:
                 rhs = ast.BinOp(
                     left=ast.Call(
-                        ast.Attribute(ast.Name(self.actx_arg_name), "zeros"),
+                        ast.Attribute(self.actx_np, "zeros"),
                         args=[
                             ast.Tuple(elts=[ast.Constant(d) for d in expr.shape]),
                             _rec_ary_or_constant(hlo.fill_value),

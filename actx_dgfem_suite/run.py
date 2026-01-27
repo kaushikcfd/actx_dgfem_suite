@@ -13,13 +13,11 @@ import pytz
 from arraycontext import ArrayContext, EagerJAXArrayContext, PytatoJAXArrayContext
 from bidict import bidict
 from meshmode.array_context import (
-    BatchedEinsumPytatoPyOpenCLArrayContext,
-)
-from meshmode.array_context import (
     PyOpenCLArrayContext as BasePyOpenCLArrayContext,
 )
 from tabulate import tabulate
 
+from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 from actx_dgfem_suite.measure import get_flop_rate
 from actx_dgfem_suite.perf_analysis import get_roofline_flop_rate
 
@@ -124,7 +122,7 @@ _NAME_TO_ACTX_CLASS = bidict(
         "pyopencl": PyOpenCLArrayContext,
         "jax:nojit": EagerJAXArrayContext,
         "jax:jit": PytatoJAXArrayContext,
-        "pytato:batched_einsum": BatchedEinsumPytatoPyOpenCLArrayContext,
+        "pytato:dgfem_opt": DGFEMOptimizerArrayContext,
     }
 )
 
@@ -177,7 +175,7 @@ if __name__ == "__main__":
             "comma separated integers representing the"
             " polynomial degree of the discretizing function"
             " spaces to run the problems on (for ex."
-            " 'pyopencl,jax:jit,pytato:batched_einsum')"
+            " 'pyopencl,jax:jit,pytato:dgfem_opt')"
         ),
         required=True,
     )

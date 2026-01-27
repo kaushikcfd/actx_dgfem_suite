@@ -15,7 +15,8 @@ def _get_suite_generating_actx(ctx):
     tempdir = tempfile.mkdtemp()
 
     return SuiteGeneratingArraycontext(
-        cq, allocator,
+        cq,
+        allocator,
         main_file_path=f"{tempdir}/main.py",
         datawrappers_path=f"{tempdir}/datawrappers.npz",
         pickled_ref_input_args_path=f"{tempdir}/ref_input_args.npz",
@@ -31,24 +32,23 @@ def test_array_returning_function(ctx_factory):
 
     actx = _get_suite_generating_actx(cl_ctx)
 
-    a = actx.zeros(10, "float64")
-    actx.compile(f)(a + 42)  # internally asserts that the result is correct
-
-    a = actx.zeros(10, "float32")
-    actx.compile(f)(actx.thaw(actx.freeze(a + 1729)))
+    a = actx.np.zeros(10, "float64")
+    actx.compile(f)(
+        actx.thaw(actx.freeze(a + 42))
+    )  # internally asserts that the result is correct
 
 
 def test_array_container_returning_function(ctx_factory):
     cl_ctx = ctx_factory()
 
     def f(x):
-        from pytools.obj_array import make_obj_array
-        return make_obj_array([2 * x, 3 * x, x**2])
+        from pytools.obj_array import new_1d
+
+        return new_1d([2 * x, 3 * x, x**2])
 
     actx = _get_suite_generating_actx(cl_ctx)
 
-    a = actx.zeros(10, "float64")
-    actx.compile(f)(a + 42)  # internally asserts that the result is correct
-
-    a = actx.zeros(10, "float32")
-    actx.compile(f)(actx.thaw(actx.freeze(a + 1729)))
+    a = actx.np.zeros(10, "float64")
+    actx.compile(f)(
+        actx.thaw(actx.freeze(a + 42))
+    )  # internally asserts that the result is correct

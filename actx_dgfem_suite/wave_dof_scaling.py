@@ -46,15 +46,14 @@ from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc, as_dofdesc
 from grudge.trace_pair import TracePair
 from meshmode.array_context import (
-    BatchedEinsumPytatoPyOpenCLArrayContext,
-)
-from meshmode.array_context import (
     PyOpenCLArrayContext as BasePyOpenCLArrayContext,
 )
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 from pytools.obj_array import flat_obj_array, make_obj_array
 from tabulate import tabulate
+
+from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -375,7 +374,7 @@ _NAME_TO_ACTX_CLASS = bidict(
         "pyopencl": PyOpenCLArrayContext,
         "jax:nojit": EagerJAXArrayContext,
         "jax:jit": PytatoJAXArrayContext,
-        "pytato:batched_einsum": BatchedEinsumPytatoPyOpenCLArrayContext,
+        "pytato:dgfem_opt": DGFEMOptimizerArrayContext,
     }
 )
 
@@ -418,7 +417,7 @@ if __name__ == "__main__":
         help=(
             "strings denoting which array context to use for the"
             " scaling test  (for ex."
-            " 'pytato:batched_einsum')"
+            " 'pytato:dgfem_opt')"
         ),
         required=True,
     )

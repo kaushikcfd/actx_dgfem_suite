@@ -27,15 +27,10 @@ from arraycontext.impl.pytato.compile import (
     BaseLazilyCompilingFunctionCaller,
     CompiledFunction,
 )
-from meshmode.array_context import (
-    # TODO rename FusionContractorArrayContext to
-    # BatchedEinsumPytatoPyOpenCLArrayContext when mirgecom production
-    # is using up to date meshmode.
-    FusionContractorArrayContext as BatchedEinsumArrayContext,
-)
 from meshmode.dof_array import array_context_for_pickling
 from pytools import memoize_method
 
+from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 from actx_dgfem_suite.utils import (
     get_actx_dgfem_suite_path,
     is_dataclass_array_container,
@@ -455,7 +450,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         return output
 
 
-class SuiteGeneratingArraycontext(BatchedEinsumArrayContext):
+class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
     """
     Overrides the :meth:`compile` method of
     :class:`arraycontext.PytatoJAXArrayContext` to generate python code that is
@@ -501,7 +496,7 @@ class SuiteGeneratingArraycontext(BatchedEinsumArrayContext):
 
     @memoize_method
     def clone(self):
-        return BatchedEinsumArrayContext(self.queue, self.allocator)
+        return DGFEMOptimizerArrayContext(self.queue, self.allocator)
 
 
 # vim: fdm=marker

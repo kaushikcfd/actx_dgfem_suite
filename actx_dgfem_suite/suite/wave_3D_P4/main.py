@@ -337,7 +337,7 @@ def _rhs_inner(
     _pt_tmp_43 = actx.tag((PrefixNamed(prefix="from_el_indices"),), _pt_tmp_43)
     _pt_data_13 = actx.thaw(npzfile["_pt_data_13"])
     _pt_data_13 = actx.tag((PrefixNamed(prefix="dof_pick_lists"),), _pt_data_13)
-    _pt_tmp_45 = actx.zeros((375000,), dtype=np.int32)
+    _pt_tmp_45 = actx.np.zeros((375000,), dtype=np.int32)
     _pt_tmp_44 = (
         _pt_data_13[_pt_tmp_45]
         if actx.permits_advanced_indexing

@@ -9,7 +9,7 @@ import numpy as np
 import opt_einsum
 import pyopencl as cl
 import pytato as pt
-from array_context import PytatoPyOpenCLArrayContext
+from arraycontext import PytatoPyOpenCLArrayContext
 from constantdict import constantdict
 from pytato.transform import CachedWalkMapper
 
@@ -481,12 +481,12 @@ def get_roofline_flop_rate(
     equation: str,
     dim: int,
     degree: int,
-    roofline_model: str = "batched_einsum:global_ai",
+    roofline_model: str = "libparanumal:global_ai",
     device_name: str | None = None,
 ) -> float:
     from actx_dgfem_suite.consts import DEV_TO_PEAK_BW, DEV_TO_PEAK_F64_GFLOPS
 
-    if roofline_model == "batched_einsum:global_ai":
+    if roofline_model == "libparanumal:global_ai":
         import pyopencl as cl
 
         cl_ctx = cl.create_some_context()
