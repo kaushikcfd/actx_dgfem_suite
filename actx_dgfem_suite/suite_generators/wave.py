@@ -28,6 +28,7 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 
+import grudge.geometry as geom
 import grudge.op as op
 import numpy as np
 from arraycontext import dataclass_array_container, with_container_arithmetic
@@ -36,7 +37,7 @@ from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc, as_dofdesc
 from grudge.trace_pair import TracePair
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-from pytools.obj_array import flat_obj_array, make_obj_array
+from pytools.obj_array import flat, new_1d
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -67,8 +68,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
     v = w_tpair.v
     dd = w_tpair.dd
 
-    normal = actx.thaw(dcoll.normal(dd))
-
+    normal = geom.normal(actx, dcoll, dd)
     flux_weak = WaveState(u=v.avg @ normal, v=u.avg * normal)
 
     # upwind
@@ -78,7 +78,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
         v=0.5 * v_jump * normal,
     )
 
-    return op.project(dcoll, dd, dd.with_dtag("all_faces"), c * flux_weak)
+    return op.project(dcoll, dd, dd.with_domain_tag("all_faces"), c * flux_weak)
 
 
 class _WaveStateTag:
@@ -154,9 +154,7 @@ def bump(actx, dcoll, t=0):
     source_omega = 3
 
     nodes = actx.thaw(dcoll.nodes())
-    center_dist = flat_obj_array(
-        [nodes[i] - source_center[i] for i in range(dcoll.dim)]
-    )
+    center_dist = flat([nodes[i] - source_center[i] for i in range(dcoll.dim)])
 
     return np.cos(source_omega * t) * actx.np.exp(
         -np.dot(center_dist, center_dist) / source_width**2
@@ -237,7 +235,7 @@ def main(dim, order, actx, *, use_nonaffine_mesh=False):
     quad_tag = None
     fields = WaveState(
         u=bump(actx, dcoll),
-        v=make_obj_array([dcoll.zeros(actx) for i in range(dcoll.dim)]),
+        v=new_1d([dcoll.zeros(actx) for i in range(dcoll.dim)]),
     )
 
     c = 1

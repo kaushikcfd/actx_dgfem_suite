@@ -49,7 +49,10 @@ def remove_tags_with_typenames(
                     if tag.__class__.__name__ not in names_to_remove
                 ]
             )
-            return subexpr.copy(tags=new_tags)
+            if new_tags == subexpr.tags:
+                return subexpr
+            else:
+                return subexpr.copy(tags=new_tags)
         else:
             return subexpr
 
@@ -98,10 +101,10 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             The behavior of this routine emulates calling :attr:`f` itself.
         """
         from arraycontext.impl.pytato.compile import (
-            _ary_container_key_stringifier,
             _get_arg_id_to_arg_and_arg_id_to_descr,
             _get_f_placeholder_args,
         )
+        from arraycontext.impl.pytato.utils import _ary_container_key_stringifier
 
         args, kwargs = (
             tuple(self.actx.thaw(self.actx.freeze(arg)) for arg in args),
@@ -214,7 +217,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             ast.Module(list(inner_code_prg.import_statements), type_ignores=[])))}
         from pytools import memoize_method
         from functools import cached_property
-        from immutables import Map
+        from immutabledict import immutabledict
         from arraycontext import ArrayContext, is_array_container_type
         from dataclasses import dataclass
         from arraycontext.container.traversal import (rec_map_array_container,
@@ -232,7 +235,6 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 
             @cached_property
             def npzfile(self):
-                from immutables import Map
                 import os
 
                 kw_to_ary = np.load(
@@ -240,8 +242,8 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
                                  "{os.path.relpath(self.actx.datawrappers_path,
                                                    start=get_actx_dgfem_suite_path())}")
                 )
-                return Map({{kw: self.actx.freeze(self.actx.from_numpy(ary))
-                            for kw, ary in kw_to_ary.items()}})
+                return immutabledict({{kw: self.actx.freeze(self.actx.from_numpy(ary))
+                                      for kw, ary in kw_to_ary.items()}})
 
             @memoize_method
             def _get_compiled_rhs_inner(self):
@@ -272,7 +274,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 
             @memoize_method
             def _get_key_to_pos_in_output_template(self):
-                from arraycontext.impl.pytato.compile import (
+                from arraycontext.impl.pytato.utils import (
                     _ary_container_key_stringifier)
 
                 output_keys = set()
@@ -285,9 +287,9 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
                 rec_keyed_map_array_container(_as_dict_of_named_arrays,
                                               output_template)
 
-                return Map({{output_key: i
-                            for i, output_key in enumerate(sorted(
-                                    output_keys, key=_ary_container_key_stringifier))}})
+                return immutabledict({{output_key: i
+                                      for i, output_key in enumerate(sorted(
+                                        output_keys, key=_ary_container_key_stringifier))}})
 
             @cached_property
             def _rhs_inner_argument_names(self):
@@ -297,7 +299,8 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 
             def __call__(self, *args, **kwargs):
                 from arraycontext.impl.pytato.compile import (
-                    _get_arg_id_to_arg_and_arg_id_to_descr,
+                    _get_arg_id_to_arg_and_arg_id_to_descr)
+                from arraycontext.impl.pytato.utils import (
                     _ary_container_key_stringifier)
                 arg_id_to_arg, _ = _get_arg_id_to_arg_and_arg_id_to_descr(args, kwargs)
                 input_kwargs_to_rhs_inner = {{

@@ -34,6 +34,7 @@ import ast
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from typing import (
+    Never,
     cast,
 )
 
@@ -41,7 +42,7 @@ import islpy as isl
 import loopy as lp
 import numpy as np
 from arraycontext import ArrayContext
-from immutables import Map
+from immutabledict import immutabledict
 from loopy.types import LoopyType
 from pytato.array import (
     AbstractResultWithNamedArrays,
@@ -76,12 +77,16 @@ from pytato.target.python.numpy_like import (
     _c99_callop_numpy_name,
     _can_colorize_output,
     _get_default_colorize_code,
-    _get_einsum_subscripts,
     _is_slice_trivial,
     first_true,
 )
 from pytato.transform import ArrayOrNames, CachedMapper
-from pytato.utils import are_shape_components_equal, are_shapes_equal
+from pytato.transform import Mapper as UncachedMapper
+from pytato.utils import (
+    are_shape_components_equal,
+    are_shapes_equal,
+    get_einsum_specification,
+)
 from pytools import UniqueNameGenerator
 from pytools.tag import Tag
 
@@ -130,6 +135,26 @@ def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
     return knl
 
 
+def _replace_python_keywords(idx_lambda: IndexLambda) -> IndexLambda:
+    import keyword
+
+    from pymbolic.mapper.substitutor import substitute
+    from pytools import UniqueNameGenerator
+
+    vng = UniqueNameGenerator()
+    vng.add_names(keyword.kwlist)
+    renaming_map = {old_name: vng(old_name) for old_name in idx_lambda.bindings}
+
+    new_expr = substitute(idx_lambda.expr)
+
+    return idx_lambda.copy(
+        expr=new_expr,
+        bindings=immutabledict(
+            {renaming_map[k]: v for k, v in idx_lambda.bindings.items()}
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class ArraycontextProgram:
     """
@@ -163,7 +188,7 @@ class ArraycontextProgram:
     argument_names: frozenset[str]
 
 
-class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames]):
+class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
     """
     A :class:`~pytato.target.Target` that translates array operations as
     :mod:`arraycontext` operations.
@@ -224,11 +249,14 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames]):
         return ast.Call(ast.Name(class_name), args=[], keywords=kwargs)
 
     def rec(self, expr: ArrayOrNames) -> str:  # type: ignore[override]
-        key = self.get_cache_key(expr)
+        inputs = self._make_cache_inputs(expr)
         try:
-            return self._cache[key]
+            return self._cache.retrieve(inputs)
         except KeyError:
-            lhs = super().rec(expr)  # type: ignore[type-var]
+            # Intentionally going to Mapper instead of super() to avoid
+            # double caching when subclasses of CachedMapper override rec,
+            # see https://github.com/inducer/pytato/pull/585
+            lhs = UncachedMapper.rec(self, expr)
 
             assert isinstance(lhs, str)
 
@@ -277,7 +305,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames]):
                 # arraycontext does not currently allowing tagging such types.
                 assert not expr.tags
 
-            self._cache[key] = lhs
+            self._cache_add(inputs, lhs)
             return lhs
 
     @property
@@ -705,7 +733,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames]):
         ):
             from pytato.transform.lower_to_index_lambda import to_index_lambda
 
-            idx_lambdaed_expr = to_index_lambda(expr)
+            idx_lambdaed_expr = _replace_python_keywords(to_index_lambda(expr))
             t_unit = get_t_unit_for_index_lambda(idx_lambdaed_expr)
             t_unit_var_name = self.get_t_unit_var_name(t_unit)
             rhs = ast.IfExp(
@@ -753,7 +781,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames]):
         args = [ast.Name(self.rec(arg)) for arg in expr.args]
         rhs = ast.Call(
             ast.Attribute(ast.Name(self.actx_arg_name), "einsum"),
-            args=[ast.Constant(_get_einsum_subscripts(expr)), *args],
+            args=[ast.Constant(get_einsum_specification(expr)), *args],
             keywords=[],
         )
 
@@ -1017,6 +1045,6 @@ def generate_arraycontext_code(
     return ArraycontextProgram(
         import_statements,
         function_def,
-        Map(cgen_mapper.numpy_arrays),
+        immutabledict(cgen_mapper.numpy_arrays),
         frozenset(cgen_mapper.arg_names),
     )
