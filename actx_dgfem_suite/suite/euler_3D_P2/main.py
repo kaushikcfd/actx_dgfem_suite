@@ -8,7 +8,7 @@ from arraycontext.container.traversal import (
     rec_keyed_map_array_container,
     rec_map_array_container,
 )
-from immutables import Map
+from immutabledict import immutabledict
 from meshmode.transform_metadata import (
     DiscretizationAmbientDimAxisTag,
     DiscretizationDOFAxisTag,
@@ -2027,14 +2027,14 @@ class RHSInvoker:
     def npzfile(self):
         import os
 
-        from immutables import Map
+        from immutabledict import immutabledict
 
         kw_to_ary = np.load(
             os.path.join(
                 get_actx_dgfem_suite_path(), "suite/euler_3D_P2/literals.npz"
             )
         )
-        return Map(
+        return immutabledict(
             {
                 kw: self.actx.freeze(self.actx.from_numpy(ary))
                 for kw, ary in kw_to_ary.items()
@@ -2086,7 +2086,7 @@ class RHSInvoker:
 
         rec_keyed_map_array_container(_as_dict_of_named_arrays, output_template)
 
-        return Map(
+        return immutabledict(
             {
                 output_key: i
                 for i, output_key in enumerate(
