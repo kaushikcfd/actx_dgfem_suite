@@ -88,7 +88,7 @@ Implement the new operators in `actx_dgfem_suite/suite/`, invoke
 
 ```console
 $ python -m suite_generators -h
-usage:  python -m suite_generators [-h] --equations E --dims D --degrees G
+usage:  python -m actx_dgfem_suite.suite_generators [-h] --equations E --dims D --degrees G
 
 Generate DG-FEM benchmarks suite
 
