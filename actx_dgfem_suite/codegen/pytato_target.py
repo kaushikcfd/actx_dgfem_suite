@@ -138,19 +138,20 @@ def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
 def _replace_python_keywords(idx_lambda: IndexLambda) -> IndexLambda:
     import keyword
 
+    from pymbolic import var
     from pymbolic.mapper.substitutor import substitute
     from pytools import UniqueNameGenerator
 
     vng = UniqueNameGenerator()
     vng.add_names(keyword.kwlist)
-    renaming_map = {old_name: vng(old_name) for old_name in idx_lambda.bindings}
+    renaming_map = {old_name: var(vng(old_name)) for old_name in idx_lambda.bindings}
 
-    new_expr = substitute(idx_lambda.expr)
+    new_expr = substitute(idx_lambda.expr, renaming_map)
 
     return idx_lambda.copy(
         expr=new_expr,
         bindings=immutabledict(
-            {renaming_map[k]: v for k, v in idx_lambda.bindings.items()}
+            {renaming_map[k].name: v for k, v in idx_lambda.bindings.items()}
         ),
     )
 
