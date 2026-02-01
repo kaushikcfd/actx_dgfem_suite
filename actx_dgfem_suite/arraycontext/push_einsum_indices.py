@@ -28,7 +28,6 @@ def _is_slice_trivial(slice_: NormalizedSlice, axis_len: ShapeComponent) -> bool
 
 
 class EinsumIndexPusher(CopyMapper):
-
     def map_basic_index(self, expr: pt.BasicIndex) -> pt.Array:
         if isinstance(expr.array, pt.Einsum):
             from pytato.array import EinsumElementwiseAxis

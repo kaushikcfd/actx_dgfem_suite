@@ -1,6 +1,9 @@
 import loopy as lp
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
+from actx_dgfem_suite.arraycontext.push_einsum_indices import (
+    push_einsum_indices_to_operands,
+)
 
 
 def apply_distributive_law_to_mass_inverse(
@@ -42,11 +45,11 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
         if pt.analysis.get_num_nodes(dag) < 10:
+            # FIXME: This is only for debugging purposes, remove this once everything is finalized.
             return super().transform_dag(dag)
 
-        # pt.show_fancy_placeholder_data_flow(dag)
-
         dag = apply_distributive_law_to_mass_inverse(dag)
+        dag = push_einsum_indices_to_operands(dag)
 
         # TODO: Implement the transformations. here.
         return super().transform_dag(dag)
