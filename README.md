@@ -31,10 +31,10 @@ them.
 
 ## HOWTO: Run the timing suite
 ```console
-$ python -O  actx_dgfem_suite.run --equations "wave,euler,cns_without_chem" \
-                                  --degrees "1,2,3,4" \
-                                  --dims "3" \
-                                  --actxs "pyopencl,jax:jit,pytato:dgfem_opt"
+$ python -O -m actx_dgfem_suite.run --equations "wave,euler,cns_without_chem" \
+                                    --degrees "1,2,3,4" \
+                                    --dims "3" \
+                                    --actxs "pyopencl,jax:jit,pytato:dgfem_opt"
 GFLOPS/s for 3D-wave:
 ╒════╤══════════╤═════════╤══════════════════╤══════════╕
 │    │ pyopencl │ jax:jit │ pytato:dgfem_opt │ Roofline │
