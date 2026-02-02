@@ -4,6 +4,7 @@ from arraycontext import PytatoPyOpenCLArrayContext
 from actx_dgfem_suite.arraycontext.push_einsum_indices import (
     push_einsum_indices_to_operands,
 )
+from actx_dgfem_suite.arraycontext.mass_inverse_fuser import fuse_mass_inverses
 
 
 def apply_distributive_law_to_mass_inverse(
@@ -50,9 +51,9 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
 
         dag = apply_distributive_law_to_mass_inverse(dag)
         dag = push_einsum_indices_to_operands(dag)
+        dag = fuse_mass_inverses(dag)
 
-        # TODO: Implement the transformations. here.
-        return super().transform_dag(dag)
+        return dag
 
     def transform_loopy_program(
         self, t_unit: lp.TranslationUnit
