@@ -1,10 +1,11 @@
 import loopy as lp
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
+
+from actx_dgfem_suite.arraycontext.mass_inverse_fuser import fuse_mass_inverses
 from actx_dgfem_suite.arraycontext.push_einsum_indices import (
     push_einsum_indices_to_operands,
 )
-from actx_dgfem_suite.arraycontext.mass_inverse_fuser import fuse_mass_inverses
 
 
 def apply_distributive_law_to_mass_inverse(
@@ -23,14 +24,12 @@ def apply_distributive_law_to_mass_inverse(
         else:
             return DoNotDistribute()
 
-    expr = pt.make_dict_of_named_arrays(
+    return pt.make_dict_of_named_arrays(
         {
             name: apply_distributive_property_to_einsums(subexpr, how_to_distribute)
             for name, subexpr in expr._data.items()
         }
     )
-
-    return expr
 
 
 class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
@@ -46,12 +45,16 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
         if pt.analysis.get_num_nodes(dag) < 10:
-            # FIXME: This is only for debugging purposes, remove this once everything is finalized.
+            # FIXME: This is only for debugging purposes, remove this once
+            # everything is finalized.
             return super().transform_dag(dag)
 
         dag = apply_distributive_law_to_mass_inverse(dag)
         dag = push_einsum_indices_to_operands(dag)
         dag = fuse_mass_inverses(dag)
+        _ = 1 / 0
+        # figure out materialization strat. over here.
+        dag = pt.push_index_to_materialized_nodes(dag)
 
         return dag
 
