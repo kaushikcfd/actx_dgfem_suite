@@ -3,6 +3,9 @@ import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
 
 from actx_dgfem_suite.arraycontext.mass_inverse_fuser import fuse_mass_inverses
+from actx_dgfem_suite.arraycontext.materialization_policy import (
+    materialize_for_dgfem_opt,
+)
 from actx_dgfem_suite.arraycontext.push_einsum_indices import (
     push_einsum_indices_to_operands,
 )
@@ -52,8 +55,7 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = apply_distributive_law_to_mass_inverse(dag)
         dag = push_einsum_indices_to_operands(dag)
         dag = fuse_mass_inverses(dag)
-        _ = 1 / 0
-        # figure out materialization strat. over here.
+        dag = materialize_for_dgfem_opt(dag)
         dag = pt.push_index_to_materialized_nodes(dag)
 
         return dag
