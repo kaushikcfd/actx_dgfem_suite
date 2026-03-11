@@ -85,7 +85,8 @@ def get_dataflow_graph(expr: pt.transform.ArrayOrNames) -> DataFlowGraph:
     )
 
 
-def solve_dgfem_materialization_eq_using_z3(dfg: DataFlowGraph):
+def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
+    # Discontinued using it since quadratic.
     import z3
 
     V = frozenset(dfg.node_to_id.values())
@@ -145,6 +146,98 @@ def solve_dgfem_materialization_eq_using_z3(dfg: DataFlowGraph):
         if c[v] == 1:
             for u in V:
                 opt.add(U[v][u] == False)  # noqa: E712
+        # Boundary Condition: f(v) = 0 if preds(v) is empty
+        if not preds[v]:
+            opt.add(f[v] == False)  # noqa: E712
+        # Boundary Condition: f(v) = 1 if succs(v) is empty
+        if not succs[v]:
+            opt.add(f[v] == True)  # noqa: E712
+
+    # Minimize the sum of materialized nodes (See Defn. (TODO) of the paper.)
+    obj = z3.Sum([z3.If(f[v], 1, 0) for v in V])
+    print("Started solving...")
+    opt.minimize(obj)
+
+    if opt.check() == z3.sat:
+        m = opt.model()
+        print("Optimal Materialization Strategy:")
+        i = 0
+        for v in V:
+            val = 1 if z3.is_true(m[f[v]]) else 0
+            if val:
+                print(f"{i}: {v}, {c[v] = }.")
+            i += val
+        print("Z3 solver stats:", opt.statistics())
+    else:
+        print("The problem is unsatisfiable!")
+
+
+def solve_dgfem_materialization_eq_using_z3(dfg: DataFlowGraph):
+    import z3
+
+    V = frozenset(dfg.node_to_id.values())
+    c = constantdict(
+        {
+            name: (
+                0
+                if isinstance(
+                    node,
+                    (
+                        pt.AdvancedIndexInContiguousAxes,
+                        pt.AdvancedIndexInNoncontiguousAxes,
+                    ),
+                )
+                else (1 if isinstance(node, pt.Einsum) else 2)
+            )
+            for node, name in dfg.node_to_id.items()
+        }
+    )
+    einsum_nodes = frozenset({k for k, v in c.items() if v == 1})
+    preds = dfg.id_preds
+    succs = dfg.id_succs
+    opt = z3.Optimize()
+    # f[v]: Materialization decision variables (See Defn. (TODO) in paper)
+    f = constantdict({v: z3.Bool(f"f_{v}") for v in V})
+    # U_f_E[v][u]: True iff node u is in U_f^E(v) (See Defn. (TODO) in paper)
+    # TODO: optimize this by considering only recursive preds of v.
+    U_f_E = constantdict(
+        {
+            v: constantdict({u: z3.Bool(f"U_{v}_{u}") for u in einsum_nodes})
+            for v in V
+        }
+    )
+
+    print("# einsum_nodes =", len(einsum_nodes))
+    print("# indirection nodes =", len({k for k, v in c.items() if v == 0}))
+    print("Started assembling...")
+
+    # Construct U_f^E(v) (See Defn. (TODO) in the paper)
+    for v in V:
+        for u in einsum_nodes:
+            if not preds[v]:
+                # If no predecessors, U is empty
+                opt.add(U_f_E[v][u] == False)  # noqa: E712
+            else:
+                u_terms = []
+                for p in preds[v]:
+                    if c[p] == 1:
+                        u_terms.append(
+                            z3.And(z3.Not(f[p]), z3.Or(u == p, U_f_E[p][u]))
+                        )
+                    else:
+                        u_terms.append(z3.And(z3.Not(f[p]), U_f_E[p][u]))
+                # u is in the set if it comes from ANY predecessor path
+                opt.add(U_f_E[v][u] == z3.Or(u_terms))
+
+    # Apply Constraints (See Defn. TODO)
+    for v in V:
+        if c[v] == 2:
+            # |U_f^E(v)| <= 1
+            opt.add(z3.Sum([z3.If(U_f_E[v][u], 1, 0) for u in einsum_nodes]) <= 1)
+        else:
+            assert c[v] == 0 or c[v] == 1
+            for u in einsum_nodes:
+                opt.add(U_f_E[v][u] == False)  # noqa: E712
         # Boundary Condition: f(v) = 0 if preds(v) is empty
         if not preds[v]:
             opt.add(f[v] == False)  # noqa: E712
