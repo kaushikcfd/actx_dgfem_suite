@@ -1,5 +1,6 @@
 import dataclasses as dc
 from collections.abc import Iterable
+from functools import cached_property
 
 import pytato as pt
 from bidict import frozenbidict
@@ -16,7 +17,32 @@ def _fset_union(s: Iterable[frozenset[pt.Array]]) -> frozenset[pt.Array]:
 class DataFlowGraph:
     succs: constantdict[pt.Array, frozenset[pt.Array]]
     preds: constantdict[pt.Array, frozenset[pt.Array]]
-    nodes: frozenset[pt.Array]
+    node_to_id: frozenbidict[pt.Array, str]
+
+    def __post_init__(self) -> None:
+        all_nodes = frozenset(self.node_to_id)
+        assert all_nodes == frozenset(self.succs)
+        assert all_nodes == frozenset(self.preds)
+        assert _fset_union(self.succs.values()) <= all_nodes
+        assert _fset_union(self.preds.values()) <= all_nodes
+
+    @cached_property
+    def id_preds(self) -> constantdict[str, frozenset[str]]:
+        return constantdict(
+            {
+                self.node_to_id[k]: frozenset(self.node_to_id[v] for v in vs)
+                for k, vs in self.preds.items()
+            }
+        )
+
+    @cached_property
+    def id_succs(self) -> constantdict[str, frozenset[str]]:
+        return constantdict(
+            {
+                self.node_to_id[k]: frozenset(self.node_to_id[v] for v in vs)
+                for k, vs in self.succs.items()
+            }
+        )
 
 
 class DataflowBuilder(pt.transform.CachedWalkMapper[[]]):
@@ -24,8 +50,9 @@ class DataflowBuilder(pt.transform.CachedWalkMapper[[]]):
         super().__init__()
         self.succs: dict[pt.Array, set[pt.Array]] = {}
         self.preds: dict[pt.Array, set[pt.Array]] = {}
-        self.nodes: set[pt.Array] = set()
+        self.node_to_id: dict[pt.Array, str] = {}
         self.direct_pred_getter = pt.analysis.DirectPredecessorsGetter()
+        self.vng = UniqueNameGenerator([""])
 
     def get_cache_key(
         self, expr: pt.transform.ArrayOrNames
@@ -35,13 +62,17 @@ class DataflowBuilder(pt.transform.CachedWalkMapper[[]]):
     def add_edge(self, from_: pt.Array, to: pt.Array) -> None:
         self.succs.setdefault(from_, set()).add(to)
         self.preds.setdefault(to, set()).add(from_)
-        self.nodes.update({from_, to})
 
     def post_visit(self, expr: pt.ArrayOrNames | pt.FunctionDefinition) -> None:
         if isinstance(expr, pt.Array):
+            assert not isinstance(expr, pt.NamedArray)
             for pred in self.direct_pred_getter(expr):
                 if isinstance(pred, pt.Array):
                     self.add_edge(pred, expr)
+
+            self.preds.setdefault(expr, set())
+            self.succs.setdefault(expr, set())
+            self.node_to_id[expr] = self.vng("")
 
 
 def get_dataflow_graph(expr: pt.transform.ArrayOrNames) -> DataFlowGraph:
@@ -50,48 +81,19 @@ def get_dataflow_graph(expr: pt.transform.ArrayOrNames) -> DataFlowGraph:
     return DataFlowGraph(
         succs=constantdict({k: frozenset(v) for k, v in builder.succs.items()}),
         preds=constantdict({k: frozenset(v) for k, v in builder.preds.items()}),
-        nodes=frozenset(builder.nodes)
+        node_to_id=frozenbidict(builder.node_to_id)
     )
-
-
-@dc.dataclass(frozen=True)
-class MaterializationState:
-    materialized_pred: pt.Array | None
-    einsum: pt.Array | None
-    is_materialized: bool
 
 
 def solve_dgfem_materialization_eq_using_z3(dfg: DataFlowGraph):
     import z3
 
-    vng = UniqueNameGenerator([""])
-    node_to_name = frozenbidict({node: vng("") for node in dfg.nodes})
-    V = frozenset(node_to_name.values())
+    V = frozenset(dfg.node_to_id.values())
     c = constantdict(
-        {name: isinstance(node, pt.Einsum) for node, name in node_to_name.items()}
+        {name: isinstance(node, pt.Einsum) for node, name in dfg.node_to_id.items()}
     )
-    preds = constantdict(
-        {
-            node_to_name[node]: frozenset(
-                {
-                    node_to_name[node_pred]
-                    for node_pred in dfg.preds.get(node, frozenset())
-                }
-            )
-            for node in dfg.nodes
-        }
-    )
-    succs = constantdict(
-        {
-            node_to_name[node]: frozenset(
-                {
-                    node_to_name[node_succ]
-                    for node_succ in dfg.succs.get(node, frozenset())
-                }
-            )
-            for node in dfg.nodes
-        }
-    )
+    preds = dfg.id_preds
+    succs = dfg.id_succs
     opt = z3.Optimize()
     # f[v]: Materialization decision variables (See Defn. (TODO) in paper)
     f = constantdict({v: z3.Bool(f"f_{v}") for v in V})
