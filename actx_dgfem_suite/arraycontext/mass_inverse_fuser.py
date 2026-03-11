@@ -1,19 +1,18 @@
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import pytato as pt
-from pytato.array import NormalizedSlice, ShapeComponent
-from pytato.scalar_expr import INT_CLASSES
 from pytato.transform import (
     ArrayOrNamesTc,
     CopyMapper,
-    _verify_is_array,
 )
-
-if TYPE_CHECKING:
-    from pymbolic.typing import Integer
+from pytools import memoize_method
 
 
 class MassInverseFuser(CopyMapper):
+    @memoize_method
+    def memoized_mult(self, x1: pt.Array, x2: pt.Array) -> pt.Array:
+        return x1 * x2
+
     def map_einsum(self, expr: pt.Einsum) -> pt.Einsum:
         if (
             pt.analysis.is_einsum_similar_to_subscript(expr, "e,ik,ek->ei")
@@ -30,7 +29,7 @@ class MassInverseFuser(CopyMapper):
             return pt.einsum(
                 "ifj,fe,fej->ei",
                 pt.einsum("ik,kfj->ifj", DMinv, Dface),
-                JMinv * Jface,
+                self.memoized_mult(JMinv, Jface),
                 uface,
             )
         elif (
@@ -47,7 +46,7 @@ class MassInverseFuser(CopyMapper):
 
             return pt.einsum(
                 "xre,rij,xej->ei",
-                JMinv * Jdiv,
+                self.memoized_mult(JMinv, Jdiv),
                 pt.einsum("ik,rkj->rij", DMinv, Ddiv),
                 udiv,
             )
@@ -65,7 +64,7 @@ class MassInverseFuser(CopyMapper):
 
             return pt.einsum(
                 "re,rij,ej->ei",
-                JMinv * Jgrad,
+                self.memoized_mult(JMinv, Jgrad),
                 pt.einsum("ik,rkj->rij", DMinv, Dgrad),
                 ugrad,
             )
