@@ -172,7 +172,24 @@ def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
         print("The problem is unsatisfiable!")
 
 
-def solve_dgfem_materialization_eq_using_z3(dfg: DataFlowGraph):
+def get_einsum_tiebreak_cost(ensm: pt.Einsum) -> int:
+    assert isinstance(ensm, pt.Einsum)
+    if pt.analysis.is_einsum_similar_to_subscript(ensm, "ik,kfj->ifj"):
+        return 0
+    elif pt.analysis.is_einsum_similar_to_subscript(ensm, "ik,rkj->rij"):
+        return 1
+    elif pt.analysis.is_einsum_similar_to_subscript(ensm, "ifj,fe,fej->ei"):
+        return 2
+    elif pt.analysis.is_einsum_similar_to_subscript(ensm, "xre,rij,xej->ei"):
+        return 3
+    else:
+        assert pt.analysis.is_einsum_similar_to_subscript(ensm, "re,rij,ej->ei")
+        return 4
+
+
+def solve_dgfem_materialization_eq_using_z3(
+    dfg: DataFlowGraph,
+) -> frozenset[pt.Array]:
     import z3
 
     V = frozenset(dfg.node_to_id.values())
@@ -206,10 +223,6 @@ def solve_dgfem_materialization_eq_using_z3(dfg: DataFlowGraph):
             for v in V
         }
     )
-
-    print("# einsum_nodes =", len(einsum_nodes))
-    print("# indirection nodes =", len({k for k, v in c.items() if v == 0}))
-    print("Started assembling...")
 
     # Construct U_f^E(v) (See Defn. (TODO) in the paper)
     for v in V:
@@ -247,27 +260,36 @@ def solve_dgfem_materialization_eq_using_z3(dfg: DataFlowGraph):
 
     # Minimize the sum of materialized nodes (See Defn. (TODO) of the paper.)
     obj = z3.Sum([z3.If(f[v], 1, 0) for v in V])
-    print("Started solving...")
+    tie_break_0 = z3.Sum([z3.If(f[v], int(c[v] == 1), int(c[v] == 1)) for v in V])
+    tie_break_1 = z3.Sum(
+        [
+            z3.If(U_f_E[v][u], get_einsum_tiebreak_cost(dfg.node_to_id.inv[u]), 0)
+            for u in einsum_nodes
+            for v in V
+        ]
+    )
     opt.minimize(obj)
+    opt.minimize(tie_break_0)
+    opt.minimize(tie_break_1)
 
     if opt.check() == z3.sat:
         m = opt.model()
-        print("Optimal Materialization Strategy:")
-        i = 0
-        for v in V:
-            val = 1 if z3.is_true(m[f[v]]) else 0
-            if val:
-                print(f"{i}: {v}, {c[v] = }.")
-            i += val
-        print("Z3 solver stats:", opt.statistics())
+        if False:
+            print("Optimal Materialization Strategy:")
+            i = 0
+            for v in sorted(V):
+                val = 1 if z3.is_true(m[f[v]]) else 0
+                if val:
+                    print(f"{i}: {v}, {c[v] = }.")
+                i += val
+            print("Z3 solver stats:", opt.statistics())
+        return frozenset({dfg.node_to_id.inv[v] for v in V if z3.is_true(m[f[v]])})
     else:
-        print("The problem is unsatisfiable!")
+        raise NotImplementedError("The materialization problem was unsatisfiable.")
 
 
 def get_arrays_to_materialize(dfg: DataFlowGraph) -> frozenset[pt.Array]:
-    solve_dgfem_materialization_eq_using_z3(dfg)
-    _ = 1 / 0
-    raise NotImplementedError
+    return solve_dgfem_materialization_eq_using_z3(dfg)
 
 
 def materialize_for_dgfem_opt(

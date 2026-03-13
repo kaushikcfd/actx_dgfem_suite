@@ -13,6 +13,10 @@ class MassInverseFuser(CopyMapper):
     def memoized_mult(self, x1: pt.Array, x2: pt.Array) -> pt.Array:
         return x1 * x2
 
+    @memoize_method
+    def memoized_einsum(self, subscripts: str, *operands: pt.Array) -> pt.Array:
+        return pt.einsum(subscripts, *operands)
+
     def map_einsum(self, expr: pt.Einsum) -> pt.Einsum:
         if (
             pt.analysis.is_einsum_similar_to_subscript(expr, "e,ik,ek->ei")
@@ -28,7 +32,7 @@ class MassInverseFuser(CopyMapper):
 
             return pt.einsum(
                 "ifj,fe,fej->ei",
-                pt.einsum("ik,kfj->ifj", DMinv, Dface),
+                self.memoized_einsum("ik,kfj->ifj", DMinv, Dface),
                 self.memoized_mult(JMinv, Jface),
                 uface,
             )
@@ -47,7 +51,7 @@ class MassInverseFuser(CopyMapper):
             return pt.einsum(
                 "xre,rij,xej->ei",
                 self.memoized_mult(JMinv, Jdiv),
-                pt.einsum("ik,rkj->rij", DMinv, Ddiv),
+                self.memoized_einsum("ik,rkj->rij", DMinv, Ddiv),
                 udiv,
             )
         elif (
@@ -65,7 +69,7 @@ class MassInverseFuser(CopyMapper):
             return pt.einsum(
                 "re,rij,ej->ei",
                 self.memoized_mult(JMinv, Jgrad),
-                pt.einsum("ik,rkj->rij", DMinv, Dgrad),
+                self.memoized_einsum("ik,rkj->rij", DMinv, Dgrad),
                 ugrad,
             )
         else:
