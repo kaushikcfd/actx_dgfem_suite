@@ -283,7 +283,13 @@ def solve_dgfem_materialization_eq_using_z3(
                     print(f"{i}: {v}, {c[v] = }.")
                 i += val
             print("Z3 solver stats:", opt.statistics())
-        return frozenset({dfg.node_to_id.inv[v] for v in V if z3.is_true(m[f[v]])})
+        return frozenset(
+            {
+                dfg.node_to_id.inv[v]
+                for v in V
+                if z3.is_true(m[f[v]]) and (len(succs[v]) > 0)
+            }
+        )
     else:
         raise NotImplementedError("The materialization problem was unsatisfiable.")
 
