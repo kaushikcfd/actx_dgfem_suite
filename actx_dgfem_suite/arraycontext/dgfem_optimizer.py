@@ -73,7 +73,8 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = pt.transform.deduplicate_data_wrappers(dag)
         dag = dedup_datawrappers_having_same_value(dag, comptime_actx)
         # pt.show_fancy_placeholder_data_flow(dag)
-        pt.show_dot_graph(dag, output_to="browser")
+        # pt.show_dot_graph(dag)
+        print(pt.get_dot_graph(dag))
         _ = 1 / 0
         return dag
 

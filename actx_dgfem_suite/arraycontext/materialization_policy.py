@@ -1,15 +1,23 @@
-import dataclasses as dc
-from collections.abc import Iterable
-from functools import cached_property
+from __future__ import annotations
 
+import dataclasses as dc
+from functools import cached_property
+from typing import TYPE_CHECKING, cast
+
+import feinsum as fnsm
 import pytato as pt
 from bidict import frozenbidict
 from constantdict import constantdict
 from pytools import UniqueNameGenerator
+from pytools.tag import Tag, tag_dataclass
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
 
 
 def _fset_union(s: Iterable[frozenset[pt.Array]]) -> frozenset[pt.Array]:
     from functools import reduce
+
     return reduce(lambda x, y: x | y, s, frozenset())
 
 
@@ -81,7 +89,7 @@ def get_dataflow_graph(expr: pt.transform.ArrayOrNames) -> DataFlowGraph:
     return DataFlowGraph(
         succs=constantdict({k: frozenset(v) for k, v in builder.succs.items()}),
         preds=constantdict({k: frozenset(v) for k, v in builder.preds.items()}),
-        node_to_id=frozenbidict(builder.node_to_id)
+        node_to_id=frozenbidict(builder.node_to_id),
     )
 
 
@@ -123,10 +131,9 @@ def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
                 u_terms = []
                 for p in preds[v]:
                     # Construct P_f(v) (See Defn. (TODO) in the paper)
-                    p_terms.append(z3.Or(
-                        z3.And(f[p], u == p),
-                        z3.And(z3.Not(f[p]), P[p][u])
-                    ))
+                    p_terms.append(
+                        z3.Or(z3.And(f[p], u == p), z3.And(z3.Not(f[p]), P[p][u]))
+                    )
                     # Construct U_f^E(v) (See Defn. (TODO) in the paper)
                     if c[p] == 1:
                         u_terms.append(z3.And(z3.Not(f[p]), z3.Or(u == p, U[p][u])))
@@ -187,9 +194,36 @@ def get_einsum_tiebreak_cost(ensm: pt.Einsum) -> int:
         return 4
 
 
+@tag_dataclass
+class EinsumBeingMaterialized(Tag):
+    einsum: fnsm.BatchedEinsum
+
+    def __post_init__(self) -> None:
+        assert self.einsum.b == 1
+
+    @staticmethod
+    def from_pt_einsum(expr: pt.Einsum) -> EinsumBeingMaterialized:
+        from pytato.utils import get_einsum_subscript_str
+
+        vng = UniqueNameGenerator()
+        arg_to_name: dict[pt.Array, str] = {}
+        for arg in expr.args:
+            if arg not in arg_to_name:
+                arg_to_name[arg] = vng("arg")
+        return EinsumBeingMaterialized(
+            fnsm.einsum(
+                get_einsum_subscript_str(expr),
+                *[
+                    fnsm.Array(arg_to_name[arg], arg.shape, arg.dtype)
+                    for arg in expr.args
+                ],
+            )
+        )
+
+
 def solve_dgfem_materialization_eq_using_z3(
     dfg: DataFlowGraph,
-) -> frozenset[pt.Array]:
+) -> tuple[frozenset[pt.Array], Mapping[pt.Array, Tag]]:
     import z3
 
     V = frozenset(dfg.node_to_id.values())
@@ -283,32 +317,65 @@ def solve_dgfem_materialization_eq_using_z3(
                     print(f"{i}: {v}, {c[v] = }.")
                 i += val
             print("Z3 solver stats:", opt.statistics())
+
+        materialized_nodes_to_einsum_evaled = {
+            v: cast(
+                "pt.Einsum",
+                dfg.node_to_id.inv[
+                    (
+                        v
+                        if c[v] == 1
+                        else next(
+                            iter(
+                                u for u in einsum_nodes if z3.is_true(m[U_f_E[v][u]])
+                            )
+                        )
+                    )
+                ],
+            )
+            for v in V
+            if z3.is_true(m[f[v]])
+        }
         return frozenset(
             {
                 dfg.node_to_id.inv[v]
                 for v in V
                 if z3.is_true(m[f[v]]) and (len(succs[v]) > 0)
             }
+        ), constantdict(
+            {
+                dfg.node_to_id.inv[v]: EinsumBeingMaterialized.from_pt_einsum(ensm)
+                for v, ensm in materialized_nodes_to_einsum_evaled.items()
+            }
         )
     else:
         raise NotImplementedError("The materialization problem was unsatisfiable.")
 
 
-def get_arrays_to_materialize(dfg: DataFlowGraph) -> frozenset[pt.Array]:
+def get_arrays_to_materialize(
+    dfg: DataFlowGraph,
+) -> tuple[frozenset[pt.Array], Mapping[pt.Array, Tag]]:
     return solve_dgfem_materialization_eq_using_z3(dfg)
 
 
 def materialize_for_dgfem_opt(
     expr: pt.transform.ArrayOrNamesTc,
 ) -> pt.transform.ArrayOrNamesTc:
-    materialized_arrays = get_arrays_to_materialize(get_dataflow_graph(expr))
+    materialized_arrays, tags = get_arrays_to_materialize(get_dataflow_graph(expr))
 
     def materialize_if_needed(
         expr: pt.transform.ArrayOrNames,
     ) -> pt.transform.ArrayOrNames:
+        new_expr = expr
         if expr in materialized_arrays:
-            return expr.tagged(pt.tags.ImplStored())
+            new_expr = new_expr.tagged(pt.tags.ImplStored())
+        try:
+            tag = tags[expr]
+        except KeyError:
+            pass
         else:
-            return expr
+            new_expr = new_expr.tagged(tag)
+
+        return new_expr
 
     return pt.transform.map_and_copy(expr, materialize_if_needed)
