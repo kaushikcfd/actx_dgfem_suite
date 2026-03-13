@@ -29,7 +29,7 @@ def _fold_constant_einsum_indirection_args(
         return expr.replace_if_different(
             args=tuple(
                 (
-                    actx.thaw(actx.freeze(arg))
+                    actx.thaw(actx.freeze(arg)).without_tags(pt.tags.ImplStored())
                     if _can_be_folded(arg, input_base_getter)
                     else arg
                 )
@@ -61,15 +61,12 @@ def _fold_constant_einsum_indirection_args(
             stride *= axis_len
 
         thawed_idx = actx.thaw(actx.freeze(raveled_idx))
-        print(75 * "-")
-        print("expr.shape =", expr.shape)
-        print("expr.array shape =", expr.array.shape)
-        print("Thawed idx shape =", thawed_idx.shape)
-        print(75 * "-")
         assert isinstance(thawed_idx, pt.DataWrapper)
 
         return memoized_ravel(actx, expr.array)[
-            thawed_idx.tagged(pt.tags.AssumeNonNegative())
+            thawed_idx.tagged(pt.tags.AssumeNonNegative()).without_tags(
+                pt.tags.ImplStored()
+            )
         ]
     else:
         return expr
