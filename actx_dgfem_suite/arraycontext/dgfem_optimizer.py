@@ -13,6 +13,9 @@ from actx_dgfem_suite.arraycontext.deduplicate_by_value import (
 from actx_dgfem_suite.arraycontext.distribute_operands_of_mass_einsum import (
     apply_distributive_law_to_mass_inverse,
 )
+from actx_dgfem_suite.arraycontext.kennedy_loop_fusion import (
+    apply_kennedy_loop_fusion_for_einsum_tag,
+)
 from actx_dgfem_suite.arraycontext.mass_inverse_fuser import fuse_mass_inverses
 from actx_dgfem_suite.arraycontext.materialization_policy import (
     make_einsum_operands_as_subst,
@@ -74,6 +77,7 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         ):
             return self.comptime_actx.transform_loopy_program(t_unit)
 
+        t_unit = apply_kennedy_loop_fusion_for_einsum_tag(t_unit)
         print(t_unit)
         print(f"Number of insns = {len(t_unit.default_entrypoint.instructions)}.")
 
