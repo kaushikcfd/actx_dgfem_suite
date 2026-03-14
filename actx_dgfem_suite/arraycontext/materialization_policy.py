@@ -8,6 +8,7 @@ import feinsum as fnsm
 import pytato as pt
 from bidict import frozenbidict
 from constantdict import constantdict
+from pytato.array import EinsumReductionAxis
 from pytools import UniqueNameGenerator
 from pytools.tag import Tag, tag_dataclass
 
@@ -194,31 +195,64 @@ def get_einsum_tiebreak_cost(ensm: pt.Einsum) -> int:
         return 4
 
 
+def _pt_einsum_to_feinsum(expr: pt.Einsum) -> fnsm.BatchedEinsum:
+    from pytato.utils import get_einsum_subscript_str
+
+    vng = UniqueNameGenerator()
+    arg_to_name: dict[pt.Array, str] = {}
+    for arg in expr.args:
+        if arg not in arg_to_name:
+            arg_to_name[arg] = vng("arg")
+
+    return fnsm.einsum(
+        get_einsum_subscript_str(expr),
+        *[fnsm.Array(arg_to_name[arg], arg.shape, arg.dtype) for arg in expr.args],
+    )
+
+
 @tag_dataclass
-class EinsumBeingMaterialized(Tag):
+class IncomingEisumTag(Tag):
+    """
+    Records the incoming einsum for a subexpression in the computational graph.
+    """
+
     einsum: fnsm.BatchedEinsum
 
     def __post_init__(self) -> None:
         assert self.einsum.b == 1
 
     @staticmethod
-    def from_pt_einsum(expr: pt.Einsum) -> EinsumBeingMaterialized:
-        from pytato.utils import get_einsum_subscript_str
+    def from_pt_einsum(expr: pt.Einsum) -> IncomingEisumTag:
+        return IncomingEisumTag(_pt_einsum_to_feinsum(expr))
 
-        vng = UniqueNameGenerator()
-        arg_to_name: dict[pt.Array, str] = {}
-        for arg in expr.args:
-            if arg not in arg_to_name:
-                arg_to_name[arg] = vng("arg")
-        return EinsumBeingMaterialized(
-            fnsm.einsum(
-                get_einsum_subscript_str(expr),
-                *[
-                    fnsm.Array(arg_to_name[arg], arg.shape, arg.dtype)
-                    for arg in expr.args
-                ],
-            )
+
+@tag_dataclass
+class EinsumAxisTag(Tag):
+    """
+    Tag that is attached to an ouptut axis for an array that which is of the
+    form ``y <- f(y1, ... yk, einsum)``, where ``f`` is a composition of
+    elementwise operations.
+    """
+
+    ensm: fnsm.BatchedEinsum
+    index: str
+
+    def __post_init__(self):
+        assert fnsm.canonicalize_einsum(self.ensm) == self.ensm
+        assert self.index in self.ensm.all_indices
+
+    @staticmethod
+    def from_non_canon_form(ensm: fnsm.BatchedEinsum, index: str) -> EinsumAxisTag:
+        from feinsum.canonicalization import (
+            get_substitution_mapping_between_isomorphic_batched_einsums,
         )
+
+        assert index in ensm.all_indices
+        canon_ensm = fnsm.canonicalize_einsum(ensm)
+        subst_map = get_substitution_mapping_between_isomorphic_batched_einsums(
+            ensm, canon_ensm
+        )
+        return EinsumAxisTag(canon_ensm, subst_map[index])
 
 
 def solve_dgfem_materialization_eq_using_z3(
@@ -344,7 +378,7 @@ def solve_dgfem_materialization_eq_using_z3(
             }
         ), constantdict(
             {
-                dfg.node_to_id.inv[v]: EinsumBeingMaterialized.from_pt_einsum(ensm)
+                dfg.node_to_id.inv[v]: IncomingEisumTag.from_pt_einsum(ensm)
                 for v, ensm in materialized_nodes_to_einsum_evaled.items()
             }
         )
@@ -379,3 +413,68 @@ def materialize_for_dgfem_opt(
         return new_expr
 
     return pt.transform.map_and_copy(expr, materialize_if_needed)
+
+
+def propagate_einsum_axes_tags(
+    expr: pt.transform.ArrayOrNamesTc,
+) -> pt.transform.ArrayOrNamesTc:
+    def propagate_axis_t(
+        expr: pt.transform.ArrayOrNames,
+    ) -> pt.transform.ArrayOrNames:
+        if isinstance(expr, pt.Array) and expr.tags_of_type(IncomingEisumTag):
+            (incoming_einsum_tag,) = expr.tags_of_type(IncomingEisumTag)
+            assert expr.shape == incoming_einsum_tag.einsum.shape
+            new_axes = tuple(
+                axis.tagged(
+                    EinsumAxisTag.from_non_canon_form(
+                        incoming_einsum_tag.einsum, idx
+                    )
+                )
+                for idx, axis in zip(
+                    incoming_einsum_tag.einsum.out_idx_set, expr.axes, strict=True
+                )
+            )
+            expr = expr.replace_if_different(axes=new_axes)
+        if isinstance(expr, pt.Einsum):
+            fnsm_einsum = _pt_einsum_to_feinsum(expr)
+            seen_redn_axis: set[EinsumReductionAxis] = set()
+            for acc_descrs, in_idx_list in zip(
+                expr.access_descriptors, fnsm_einsum.in_idx_sets, strict=True
+            ):
+                for in_idx, acc_descr in zip(in_idx_list, acc_descrs, strict=True):
+                    if (
+                        isinstance(acc_descr, EinsumReductionAxis)
+                        and acc_descr not in seen_redn_axis
+                    ):
+                        expr = expr.with_tagged_reduction(
+                            acc_descr,
+                            EinsumAxisTag.from_non_canon_form(fnsm_einsum, in_idx),
+                        )
+                        seen_redn_axis.add(acc_descr)
+        return expr
+
+    return pt.transform.map_and_copy(expr, propagate_axis_t)
+
+
+def make_einsum_operands_as_subst(
+    expr: pt.transform.ArrayOrNamesTc,
+) -> pt.transform.ArrayOrNamesTc:
+    from pytato.target.loopy import ImplSubstitution
+
+    arg_to_passthru_subst: dict[pt.Array, pt.Array] = {}
+
+    def make_einsum_operands_as_subst(
+        expr: pt.transform.ArrayOrNames,
+    ) -> pt.transform.ArrayOrNames:
+        if isinstance(expr, pt.Einsum):
+            expr = expr.replace_if_different(
+                args=tuple(
+                    arg_to_passthru_subst.setdefault(
+                        arg, arg[:].tagged(ImplSubstitution())
+                    )
+                    for arg in expr.args
+                )
+            )
+        return expr
+
+    return pt.transform.map_and_copy(expr, make_einsum_operands_as_subst)
