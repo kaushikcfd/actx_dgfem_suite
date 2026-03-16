@@ -67,7 +67,6 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
     def transform_loopy_program(
         self, t_unit: lp.TranslationUnit
     ) -> lp.TranslationUnit:
-        # TODO: Implement the transformations.
         from actx_dgfem_suite.arraycontext.materialization_policy import (
             IncomingEisumTag,
         )
@@ -78,7 +77,5 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
             return self.comptime_actx.transform_loopy_program(t_unit)
 
         t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
-        print(t_unit)
-        print(f"Number of insns = {len(t_unit.default_entrypoint.instructions)}.")
 
         raise NotImplementedError

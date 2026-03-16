@@ -5,7 +5,7 @@ from actx_dgfem_suite.arraycontext.metadata import EinsumAxisTag
 
 def _get_fusion_order_key(tag: EinsumAxisTag) -> tuple[int, str, str]:
     return (
-        int(tag.index in tag.ensm.out_idx_set),
+        int(tag.index not in tag.ensm.out_idx_set),
         tag.ensm.get_subscripts(),
         tag.index,
     )
