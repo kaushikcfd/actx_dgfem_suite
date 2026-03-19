@@ -4,6 +4,7 @@ A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
 """
 
 import argparse
+import dataclasses as dc
 from collections.abc import Sequence
 
 import pyopencl as cl
@@ -71,6 +72,13 @@ def main(
                 print(75 * "-")
 
 
+@dc.dataclass(frozen=True)
+class CLIArgs:
+    equations: str
+    dims: str
+    degrees: str
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate DG-FEM benchmarks suite",
@@ -112,7 +120,7 @@ if __name__ == "__main__":
         required=True,
     )
 
-    args = parser.parse_args()
+    args = CLIArgs(**vars(parser.parse_args()))  # pyright: ignore[reportAny]
     main(
         equations=[k.strip() for k in args.equations.split(",")],
         dims=[int(k.strip()) for k in args.dims.split(",")],
