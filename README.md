@@ -20,7 +20,7 @@ Supporting input data is made available via pickled files. Run the following
 commands to get the pickle blobs for the current suite.
 
 ```console
-$ cd actx_dgfem_suite
+$ cd actx_dgfem_suite/tools/
 $ python download_pickled_files.py
 ```
 
