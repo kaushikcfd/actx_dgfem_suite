@@ -31,7 +31,7 @@ THE SOFTWARE.
 """
 
 import ast
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from typing import (
     Never,
@@ -42,7 +42,7 @@ import islpy as isl
 import loopy as lp
 import numpy as np
 from arraycontext import ArrayContext
-from immutabledict import immutabledict
+from constantdict import constantdict
 from loopy.types import LoopyType
 from pytato.array import (
     AbstractResultWithNamedArrays,
@@ -51,6 +51,7 @@ from pytato.array import (
     Array,
     ArrayOrScalar,
     AxisPermutation,
+    BasicIndex,
     Concatenate,
     DataWrapper,
     DictOfNamedArrays,
@@ -68,7 +69,6 @@ from pytato.array import (
 )
 from pytato.raising import C99CallOp
 from pytato.scalar_expr import SCALAR_CLASSES
-from pytato.target.python import BoundPythonProgram
 from pytato.target.python.numpy_like import (
     COMPARISON_OP_TO_CALL,
     LOGICAL_OP_TO_CALL,
@@ -81,7 +81,6 @@ from pytato.target.python.numpy_like import (
     first_true,
 )
 from pytato.transform import ArrayOrNames, CachedMapper
-from pytato.transform import Mapper as UncachedMapper
 from pytato.utils import (
     are_shape_components_equal,
     are_shapes_equal,
@@ -89,6 +88,7 @@ from pytato.utils import (
 )
 from pytools import UniqueNameGenerator
 from pytools.tag import Tag
+from typing_extensions import override
 
 
 def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
@@ -113,7 +113,7 @@ def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
     # FIXME : Need to remove the if condition for null domains
     domain = f"{{ [{all_dims}]: {bounds} }}" if dim_to_bounds else "{:}"
 
-    knl = lp.make_kernel(
+    return lp.make_kernel(
         domains=domain,
         instructions=[
             lp.Assignment(
@@ -123,16 +123,18 @@ def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
             )
         ],
         kernel_data=[
-            lp.GlobalArg("out", shape=expr.shape, dtype=expr.dtype),
+            lp.GlobalArg(  # pyright: ignore[reportUnknownMemberType]
+                "out", shape=expr.shape, dtype=expr.dtype
+            ),
             *[
-                lp.GlobalArg(name, shape=bnd.shape, dtype=bnd.dtype)
+                lp.GlobalArg(  # pyright: ignore[reportUnknownMemberType]
+                    name, shape=bnd.shape, dtype=bnd.dtype
+                )
                 for name, bnd in sorted(expr.bindings.items())
             ],
         ],
         lang_version=(2018, 2),
     )
-
-    return knl
 
 
 def _replace_python_keywords(idx_lambda: IndexLambda) -> IndexLambda:
@@ -150,10 +152,21 @@ def _replace_python_keywords(idx_lambda: IndexLambda) -> IndexLambda:
 
     return idx_lambda.copy(
         expr=new_expr,
-        bindings=immutabledict(
+        bindings=constantdict(
             {renaming_map[k].name: v for k, v in idx_lambda.bindings.items()}
         ),
     )
+
+
+def _shape_to_ast_elts(shape: tuple[ShapeComponent, ...]) -> list[ast.expr]:
+    """
+    Convert a pytato shape (known to be all-integer) to a list of AST constants.
+    """
+    elts: list[ast.expr] = []
+    for s in shape:
+        assert isinstance(s, int)
+        elts.append(ast.Constant(s))
+    return elts
 
 
 @dataclass(frozen=True)
@@ -183,13 +196,13 @@ class ArraycontextProgram:
         :attr:`function_def`.
     """
 
-    import_statements: tuple[ast.expr, ...]
+    import_statements: tuple[ast.stmt, ...]
     function_def: ast.FunctionDef
     numpy_arrays_to_store: Mapping[str, np.ndarray]
     argument_names: frozenset[str]
 
 
-class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
+class ArraycontextCodegenMapper(CachedMapper[str, Never, []]):
     """
     A :class:`~pytato.target.Target` that translates array operations as
     :mod:`arraycontext` operations.
@@ -200,7 +213,13 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
           mapper instance must be re-used with care.
     """
 
-    def __init__(self, actx: ArrayContext, vng: Callable[[str], str]):
+    actx: ArrayContext
+    vng: UniqueNameGenerator
+    numpy: str
+    actx_arg_name: str
+    npzfile_arg_name: str
+
+    def __init__(self, actx: ArrayContext, vng: UniqueNameGenerator):
         super().__init__()
 
         # Immutable state
@@ -221,7 +240,6 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
         self.temp_var_names: set[str] = set()
 
     def get_t_unit_var_name(self, t_unit: lp.TranslationUnit) -> str:
-        """ """
         try:
             return self.seen_tunits_to_names[t_unit]
         except KeyError:
@@ -236,10 +254,10 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
 
         class_name = self.seen_tags_to_names[tag.__class__]
 
-        kwargs = []
+        kwargs: list[ast.keyword] = []
 
         for field in fields(tag):
-            field_val = getattr(tag, field.name)
+            field_val = getattr(tag, field.name)  # pyright: ignore[reportAny]
             if isinstance(field_val, (int, str)):
                 field_val_expr = ast.Constant(field_val)
             else:
@@ -249,15 +267,16 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
 
         return ast.Call(ast.Name(class_name), args=[], keywords=kwargs)
 
-    def rec(self, expr: ArrayOrNames) -> str:  # type: ignore[override]
+    @override
+    def rec(self, expr: ArrayOrNames) -> str:
         inputs = self._make_cache_inputs(expr)
         try:
-            return self._cache.retrieve(inputs)
+            return cast("str", cast("object", self._cache.retrieve(inputs)))
         except KeyError:
             # Intentionally going to Mapper instead of super() to avoid
             # double caching when subclasses of CachedMapper override rec,
             # see https://github.com/inducer/pytato/pull/585
-            lhs = UncachedMapper.rec(self, expr)
+            lhs = super(CachedMapper, self).rec(expr)
 
             assert isinstance(lhs, str)
 
@@ -340,21 +359,23 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
                 assert isinstance(e, SCALAR_CLASSES)
                 if np.isnan(e):
                     # generates code like: `np.float64("nan")`.
+                    assert isinstance(e, np.generic)
                     return ast.Call(
                         func=ast.Attribute(
-                            value=ast.Name(self.numpy), attr=e.dtype.type.__name__
+                            value=ast.Name(self.numpy),
+                            attr=e.dtype.type.__name__,
                         ),
                         args=[ast.Constant(value="nan")],
                         keywords=[],
                     )
                 else:
-                    return ast.Constant(e)
+                    return ast.Constant(cast("int | float | complex | bool", e))
 
         if isinstance(hlo, FullOp):
             if hlo.fill_value == 0:
                 rhs = ast.Call(
                     ast.Attribute(self.actx_np, "zeros"),
-                    args=[ast.Tuple(elts=[ast.Constant(d) for d in expr.shape])],
+                    args=[ast.Tuple(elts=_shape_to_ast_elts(expr.shape))],
                     keywords=[
                         ast.keyword(
                             arg="dtype",
@@ -369,7 +390,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
                     left=ast.Call(
                         ast.Attribute(self.actx_np, "zeros"),
                         args=[
-                            ast.Tuple(elts=[ast.Constant(d) for d in expr.shape]),
+                            ast.Tuple(elts=_shape_to_ast_elts(expr.shape)),
                             _rec_ary_or_constant(hlo.fill_value),
                         ],
                         keywords=[
@@ -522,7 +543,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
                 ast.Attribute(self.actx_np, "broadcast_to"),
                 args=[
                     ast.Name(self.rec(hlo.x)),
-                    ast.Tuple(elts=[ast.Constant(d) for d in expr.shape]),
+                    ast.Tuple(elts=_shape_to_ast_elts(expr.shape)),
                 ],
                 keywords=[],
             )
@@ -693,18 +714,20 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
                         else idx.stop
                     )
 
-                kwargs = {}
+                step_expr: ast.expr | None = None
+                lower_expr: ast.expr | None = None
+                upper_expr: ast.expr | None = None
                 if step is not None:
                     assert isinstance(step, int)
-                    kwargs["step"] = ast.Constant(step)
+                    step_expr = ast.Constant(step)
                 if start is not None:
                     assert isinstance(start, int)
-                    kwargs["lower"] = ast.Constant(start)
+                    lower_expr = ast.Constant(start)
                 if stop is not None:
                     assert isinstance(stop, int)
-                    kwargs["upper"] = ast.Constant(stop)
+                    upper_expr = ast.Constant(stop)
 
-                return ast.Slice(**kwargs)
+                return ast.Slice(upper=upper_expr, step=step_expr, lower=lower_expr)
             else:
                 assert isinstance(idx, Array)
                 return ast.Name(self.rec(idx))
@@ -758,9 +781,18 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
 
         return self._record_line_and_return_lhs(lhs, rhs)
 
-    map_basic_index = _map_index_base
-    map_contiguous_advanced_index = _map_index_base
-    map_non_contiguous_advanced_index = _map_index_base
+    def map_basic_index(self, expr: BasicIndex) -> str:
+        return self._map_index_base(expr)
+
+    def map_contiguous_advanced_index(
+        self, expr: AdvancedIndexInContiguousAxes
+    ) -> str:
+        return self._map_index_base(expr)
+
+    def map_non_contiguous_advanced_index(
+        self, expr: AdvancedIndexInNoncontiguousAxes
+    ) -> str:
+        return self._map_index_base(expr)
 
     def map_data_wrapper(self, expr: DataWrapper) -> str:
         lhs = self.vng("_pt_data") if expr.name is None else expr.name
@@ -797,7 +829,7 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
             ast.Attribute(self.actx_np, "reshape"),
             args=[
                 ast.Name(self.rec(expr.array)),
-                ast.Tuple(elts=[ast.Constant(d) for d in expr.shape]),
+                ast.Tuple(elts=_shape_to_ast_elts(expr.shape)),
             ],
             keywords=[],
         )
@@ -808,9 +840,9 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
         lhs = self.vng("_pt_tmp")
         self.temp_var_names.add(lhs)
 
-        values = []
+        values: list[ast.expr] = []
         for _name, subexpr in sorted(expr._data.items()):
-            values.append(ast.Name(self.rec(subexpr)))
+            values.append(ast.Name(self.rec(cast("ArrayOrNames", subexpr))))
 
         # our final goal is to return a type that `ArrayContext.compile` can
         # digest.
@@ -822,10 +854,10 @@ class ArraycontextCodegenMapper(CachedMapper[ArrayOrNames, Never, []]):
 
 
 def _delete_arrays_post_live_interval(
-    lines: Sequence[ast.expr], temp_vars: frozenset[str]
-) -> tuple[ast.expr, ...]:
+    lines: Sequence[ast.stmt], temp_vars: frozenset[str]
+) -> tuple[ast.stmt, ...]:
 
-    temp_var_to_deletable_i_line = {}
+    temp_var_to_deletable_i_line: dict[str, int] = {}
     for i_line, line in enumerate(lines):
         for node in ast.walk(line):
             if isinstance(node, ast.Name) and node.id in temp_vars:
@@ -837,7 +869,7 @@ def _delete_arrays_post_live_interval(
     for temp_var, i_line in temp_var_to_deletable_i_line.items():
         iline_to_deletable_temp_vars[i_line].add(temp_var)
 
-    new_lines: list[ast.expr] = []
+    new_lines: list[ast.stmt] = []
 
     for i_line, line in enumerate(lines):
         new_lines.append(line)
@@ -860,22 +892,19 @@ def generate_arraycontext_code(
     function_name: str,
     show_code: bool = False,
     colorize_show_code: bool | None = None,
-) -> BoundPythonProgram:
+) -> ArraycontextProgram:
     """
     Compiles *expr* to python code with :mod:`arraycontext` calls for the
     individual array operations. The generated python function definition
     can be run using any instance of :class:`arraycontext.ArrayContext`.
     """
 
-    import collections
-
     from pytato.transform import InputGatherer
 
-    if (not isinstance(expr, DictOfNamedArrays)) and isinstance(
-        expr, collections.abc.Mapping
-    ):
+    if (not isinstance(expr, DictOfNamedArrays)) and isinstance(expr, Mapping):
         from pytato.array import make_dict_of_named_arrays
 
+        assert isinstance(expr, Mapping)
         expr = make_dict_of_named_arrays(dict(expr))
 
     assert isinstance(expr, DictOfNamedArrays)
@@ -897,7 +926,7 @@ def generate_arraycontext_code(
     var_name_gen.add_names({"actx", "npzfile", "np", "make_obj_array", "lp"})
 
     cgen_mapper = ArraycontextCodegenMapper(actx, vng=var_name_gen)
-    result_var = cgen_mapper(expr)
+    result_var = cast("str", cast("object", cgen_mapper(expr)))
 
     lines = cgen_mapper.lines
     lines.append(ast.Return(ast.Name(result_var)))
@@ -925,7 +954,12 @@ def generate_arraycontext_code(
 
         knl_args: list[ast.expr] = []
         for arg in knl.args:
-            if not all(isinstance(d, int) for d in arg.shape):
+            arg_shape = (
+                cast("tuple[int, ...]", arg.shape)
+                if isinstance(arg, lp.ArrayArg)
+                else ()
+            )
+            if not all(isinstance(d, int) for d in arg_shape):
                 raise NotImplementedError()
 
             if not isinstance(arg.dtype, LoopyType):
@@ -936,7 +970,7 @@ def generate_arraycontext_code(
             knl_args.append(
                 ast.Call(
                     ast.Attribute(ast.Name("lp"), "GlobalArg"),
-                    args=[ast.Constant(arg.name)],
+                    args=[ast.Constant(cast("str", cast("object", arg.name)))],
                     keywords=[
                         ast.keyword(
                             "dtype",
@@ -946,7 +980,7 @@ def generate_arraycontext_code(
                         ),
                         ast.keyword(
                             "shape",
-                            ast.Tuple(elts=[ast.Constant(d) for d in arg.shape]),
+                            ast.Tuple(elts=_shape_to_ast_elts(arg_shape)),
                         ),
                     ],
                 )
@@ -968,7 +1002,7 @@ def generate_arraycontext_code(
 
     # {{{ handle tag imports
 
-    tag_t_define_lines: list[ast.expr] = []
+    tag_t_define_lines: list[ast.stmt] = []
 
     for tag_t, name in sorted(
         cgen_mapper.seen_tags_to_names.items(), key=lambda k_x_v: k_x_v[1]
@@ -992,7 +1026,7 @@ def generate_arraycontext_code(
 
     # }}}
 
-    import_statements = (
+    import_stmts: list[ast.stmt] = [
         ast.ImportFrom(
             "pytools.obj_array", [ast.alias(name="make_obj_array")], level=0
         ),
@@ -1002,19 +1036,22 @@ def generate_arraycontext_code(
         ),
         ast.Import(names=[ast.alias(name="loopy", asname="lp")]),
         *tag_t_define_lines,
-    )
+    ]
+    import_statements = tuple(import_stmts)
     function_def = ast.FunctionDef(
-        name=function_name,
-        posonlyargs=[],
-        args=ast.arguments(
+        function_name,
+        ast.arguments(
             args=[ast.arg(arg="actx"), ast.arg(arg="npzfile")],
             posonlyargs=[],
             kwonlyargs=[ast.arg(arg=name) for name in sorted(cgen_mapper.arg_names)],
             kw_defaults=[None for _ in cgen_mapper.arg_names],
             defaults=[],
         ),
-        body=define_t_unit_lines + list(lines),
-        decorator_list=[],
+        define_t_unit_lines + list(lines),
+        [],
+        None,
+        None,
+        [],
     )
 
     if show_code:
@@ -1029,15 +1066,19 @@ def generate_arraycontext_code(
         assert isinstance(colorize_show_code, bool)
 
         if _can_colorize_output() and colorize_show_code:
-            from pygments import highlight
+            from pygments import (
+                highlight,  # pyright: ignore[reportUnknownVariableType]
+            )
             from pygments.formatters import TerminalTrueColorFormatter
-            from pygments.lexers import PythonLexer
+            from pygments.lexers import (
+                PythonLexer,  # pyright: ignore[reportUnknownVariableType]
+            )
 
             print(
                 highlight(
                     program,
-                    formatter=TerminalTrueColorFormatter(),
-                    lexer=PythonLexer(),
+                    formatter=TerminalTrueColorFormatter(),  # pyright:ignore[reportUnknownArgumentType]
+                    lexer=PythonLexer(),  # pyright:ignore[reportUnknownArgumentType]
                 )
             )
         else:
@@ -1046,6 +1087,6 @@ def generate_arraycontext_code(
     return ArraycontextProgram(
         import_statements,
         function_def,
-        immutabledict(cgen_mapper.numpy_arrays),
+        constantdict(cgen_mapper.numpy_arrays),
         frozenset(cgen_mapper.arg_names),
     )
