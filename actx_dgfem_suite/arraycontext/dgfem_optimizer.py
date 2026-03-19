@@ -3,6 +3,7 @@ from functools import cached_property
 import loopy as lp
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
+from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext.constants_folder import (
     fold_constants_in_einsum_indirections,
@@ -43,6 +44,7 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
     def comptime_actx(self) -> PytatoPyOpenCLArrayContext:
         return NoFusionPytatoPyOpenCLActx(self.queue, self.allocator)
 
+    @override
     def transform_dag(
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
@@ -52,6 +54,7 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
             # everything is finalized.
             return self.comptime_actx.transform_dag(dag)
 
+        assert isinstance(dag, pt.DictOfNamedArrays)
         dag = apply_distributive_law_to_mass_inverse(dag)
         dag = push_einsum_indices_to_operands(dag)
         dag = fuse_mass_inverses(dag)
@@ -64,12 +67,14 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = propagate_einsum_axes_tags(dag)
         return make_einsum_operands_as_subst(dag)
 
+    @override
     def transform_loopy_program(
         self, t_unit: lp.TranslationUnit
     ) -> lp.TranslationUnit:
-        from actx_dgfem_suite.arraycontext.materialization_policy import (
+        from actx_dgfem_suite.arraycontext.metadata import (
             IncomingEisumTag,
         )
+
         if not any(
             tv.tags_of_type(IncomingEisumTag)
             for tv in t_unit.default_entrypoint.temporary_variables.values()
