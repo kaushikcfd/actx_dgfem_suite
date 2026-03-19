@@ -51,6 +51,8 @@ from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import flat, new_1d
 
+from actx_dgfem_suite.utils import get_nel_1d_for_regular_rect_mesh
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -234,39 +236,8 @@ def bump(
     )
 
 
-GLOBAL_NDOFS = 3e6
-
-
-def _get_nel_1d(dim: int, order: int) -> int:
-    from math import cbrt, ceil
-
-    nel_1d: int
-
-    if dim == 3:
-        if order == 1:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 4) / 6))
-        elif order == 2:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 10) / 6))
-        elif order == 3:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 20) / 6))
-        elif order == 4:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 35) / 6))
-        else:
-            raise NotImplementedError(order)
-    elif dim == 2:
-        if order in {1, 2, 3, 4}:
-            nel_1d = 1000
-        else:
-            raise NotImplementedError(order)
-    else:
-        raise NotImplementedError
-
-    return nel_1d
-
-
-def main(dim: int, order: int, actx: ArrayContext) -> None:
-
-    nel_1d = _get_nel_1d(dim, order)
+def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
+    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, ndofs)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 

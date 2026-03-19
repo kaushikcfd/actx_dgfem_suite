@@ -42,35 +42,10 @@ from meshmode.mesh import BTAG_ALL
 from meshmode.mesh.generation import generate_regular_rect_mesh
 from pytools.obj_array import ObjectArray, new_1d
 
+from actx_dgfem_suite.utils import get_nel_1d_for_regular_rect_mesh
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-
-GLOBAL_NDOFS = 3e6
-
-
-def _get_nel_1d(dim: int, order: int) -> int:
-    from math import cbrt, ceil
-
-    if dim == 3:
-        if order == 1:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 4) / 12))
-        elif order == 2:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 10) / 12))
-        elif order == 3:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 20) / 12))
-        elif order == 4:
-            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 35) / 12))
-        else:
-            raise NotImplementedError(order)
-    elif dim == 2:
-        if order in {1, 2, 3, 4}:
-            nel_1d = 1000
-        else:
-            raise NotImplementedError(order)
-    else:
-        raise NotImplementedError
-
-    return int(nel_1d)
 
 
 def gaussian_profile(
@@ -154,11 +129,9 @@ def acoustic_pulse_condition(
     )
 
 
-def main(
-    dim: int, order: int, actx: ArrayContext, *, overintegration: bool = False
-) -> None:
+def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
 
-    nel_1d = _get_nel_1d(dim, order)
+    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, ndofs)
 
     # eos-related parameters
     gamma = 1.4
@@ -171,10 +144,7 @@ def main(
         a=(box_ll,) * dim, b=(box_ur,) * dim, nelements_per_axis=(nel_1d,) * dim
     )
 
-    if overintegration:
-        quad_tag = DISCR_TAG_QUAD
-    else:
-        quad_tag = None
+    quad_tag = None
 
     dcoll = DiscretizationCollection(
         actx,
@@ -206,15 +176,7 @@ def main(
 
     compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportArgumentType]
 
-    from grudge.dt_utils import h_min_from_volume
-
-    cfl = 0.125
-    cn = 0.5 * (order + 1) ** 2
-    dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
-
     fields = acoustic_pulse_condition(actx.thaw(dcoll.nodes()))
-
-    logger.info("Timestep size: %g", dt)
 
     # }}}
 

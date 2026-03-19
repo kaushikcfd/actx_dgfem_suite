@@ -89,3 +89,34 @@ def is_dataclass_array_container(ary: object) -> bool:
     return (
         is_array_container_type(ary.__class__) and is_dataclass(ary)
     ) or isinstance(ary, DOFArray)
+
+
+def get_nel_1d_for_regular_rect_mesh(dim: int, order: int, ndofs: int) -> int:
+    from math import cbrt, ceil, sqrt
+
+    if dim == 3:
+        if order == 1:
+            nel_1d = ceil(cbrt((ndofs / 4) / 6))
+        elif order == 2:
+            nel_1d = ceil(cbrt((ndofs / 10) / 6))
+        elif order == 3:
+            nel_1d = ceil(cbrt((ndofs / 20) / 6))
+        elif order == 4:
+            nel_1d = ceil(cbrt((ndofs / 35) / 6))
+        else:
+            raise NotImplementedError(order)
+    elif dim == 2:
+        if order == 1:
+            nel_1d = ceil(sqrt((ndofs / 3) / 2))
+        elif order == 2:
+            nel_1d = ceil(sqrt((ndofs / 6) / 2))
+        elif order == 3:
+            nel_1d = ceil(sqrt((ndofs / 10) / 2))
+        elif order == 4:
+            nel_1d = ceil(sqrt((ndofs / 15) / 2))
+        else:
+            raise NotImplementedError(order)
+    else:
+        raise NotImplementedError
+
+    return int(nel_1d)

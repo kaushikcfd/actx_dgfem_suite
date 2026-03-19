@@ -46,14 +46,40 @@ def main(
                     from actx_dgfem_suite.suite_generators.wave import main as driver
 
                     actx = get_actx(equation, dim, degree)
-                    driver(dim=dim, order=degree, actx=actx)
+                    driver(dim=dim, order=degree, actx=actx, ndofs=3_000_000)
+                elif equation == "tiny_wave":
+                    from actx_dgfem_suite.suite_generators.wave import main as driver
+
+                    actx = get_actx(equation, dim, degree)
+                    driver(dim=dim, order=degree, actx=actx, ndofs=1_000)
                 elif equation == "euler":
                     from actx_dgfem_suite.suite_generators.euler import (
                         main as driver,
                     )
 
                     actx = get_actx(equation, dim, degree)
-                    driver(dim=dim, order=degree, actx=actx)
+                    driver(dim=dim, order=degree, actx=actx, ndofs=3_000_000)
+                elif equation == "tiny_euler":
+                    from actx_dgfem_suite.suite_generators.euler import (
+                        main as driver,
+                    )
+
+                    actx = get_actx(equation, dim, degree)
+                    driver(dim=dim, order=degree, actx=actx, ndofs=1_000)
+                elif equation == "maxwell":
+                    from actx_dgfem_suite.suite_generators.maxwell import (
+                        main as driver,
+                    )
+
+                    actx = get_actx(equation, dim, degree)
+                    driver(dim=dim, order=degree, actx=actx, ndofs=3_000_000)
+                elif equation == "tiny_maxwell":
+                    from actx_dgfem_suite.suite_generators.maxwell import (
+                        main as driver,
+                    )
+
+                    actx = get_actx(equation, dim, degree)
+                    driver(dim=dim, order=degree, actx=actx, ndofs=1_000)
                 elif equation == "cns_without_chem":
                     from actx_dgfem_suite.suite_generators.cns import main as driver
 
