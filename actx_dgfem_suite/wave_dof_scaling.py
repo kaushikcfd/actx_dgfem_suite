@@ -27,31 +27,41 @@ THE SOFTWARE.
 
 import argparse
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from time import time
+from typing import cast
 
-import grudge.op as op
 import loopy as lp
 import numpy as np
 from arraycontext import (
     ArrayContext,
+    ArrayOrContainer,
     EagerJAXArrayContext,
     PytatoJAXArrayContext,
     dataclass_array_container,
     with_container_arithmetic,
 )
 from bidict import bidict
+from grudge import geometry as geo
+from grudge import op
 from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc, as_dofdesc
+from grudge.dof_desc import (
+    DISCR_TAG_BASE,
+    DISCR_TAG_QUAD,
+    DiscretizationTag,
+    DOFDesc,
+    as_dofdesc,
+)
 from grudge.trace_pair import TracePair
 from meshmode.array_context import (
     PyOpenCLArrayContext as BasePyOpenCLArrayContext,
 )
 from meshmode.dof_array import DOFArray
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-from pytools.obj_array import flat_obj_array, make_obj_array
+from meshmode.mesh import BTAG_ALL
+from pytools.obj_array import flat, new_1d
 from tabulate import tabulate
+from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 
@@ -60,18 +70,20 @@ logging.basicConfig(level=logging.INFO)
 
 
 class PyOpenCLArrayContext(BasePyOpenCLArrayContext):
+    @override
     def transform_loopy_program(
         self, t_unit: lp.TranslationUnit
     ) -> lp.TranslationUnit:
-        from meshmode.arraycontext_extras.split_actx.utils import (
+        from actx_dgfem_suite.arraycontext.no_fusion_actx import (
             split_iteration_domain_across_work_items,
         )
 
-        t_unit = split_iteration_domain_across_work_items(t_unit, self.queue.device)
-        return t_unit
+        return split_iteration_domain_across_work_items(t_unit, self.queue.device)
 
 
-def _get_actx_t_priority(actx_t):
+def _get_actx_t_priority(  # pyright: ignore[reportUnusedFunction]
+    actx_t: type[ArrayContext],
+) -> int:
     if issubclass(actx_t, PytatoJAXArrayContext):
         return 10
     else:
@@ -105,7 +117,7 @@ def get_actual_scalar_ndofs(*, ndofs: int, degree: int, dim: int) -> int:
     from math import ceil
 
     nunit_dofs = get_nunit_dofs(dim=dim, degree=degree)
-    nel_1d = ceil(((ndofs / nunit_dofs) / 6) ** (1 / 3))
+    nel_1d = ceil(cast("float", ((ndofs / nunit_dofs) / 6) ** (1 / 3)))
     return 6 * (nel_1d**3) * nunit_dofs
 
 
@@ -129,49 +141,98 @@ class WaveState:
         return self.u.array_context
 
 
-def wave_flux(actx, dcoll, c, w_tpair):
+def wave_flux(
+    actx: ArrayContext,
+    dcoll: DiscretizationCollection,
+    c: float,
+    w_tpair: TracePair[WaveState],  # pyright: ignore[reportInvalidTypeArguments]
+) -> ArrayOrContainer:
     u = w_tpair.u
     v = w_tpair.v
     dd = w_tpair.dd
 
-    normal = actx.thaw(dcoll.normal(dd))
+    normal = geo.normal(actx, dcoll, dd)
 
-    flux_weak = WaveState(u=v.avg @ normal, v=u.avg * normal)
-
-    # upwind
-    v_jump = v.diff @ normal
-    flux_weak += WaveState(
-        u=0.5 * u.diff,
-        v=0.5 * v_jump * normal,
+    flux_weak = WaveState(
+        u=v.avg @ normal,  # pyright: ignore[reportOperatorIssue, reportArgumentType]
+        v=u.avg * normal,  # pyright: ignore[reportOperatorIssue, reportArgumentType]
     )
 
-    return op.project(dcoll, dd, dd.with_dtag("all_faces"), c * flux_weak)
+    # upwind
+    v_jump = cast(
+        "DOFArray", v.diff @ normal  # pyright: ignore[reportOperatorIssue]
+    )
+    flux_weak += (  # pyright: ignore[reportOperatorIssue, reportUnknownVariableType]
+        WaveState(
+            u=0.5 * u.diff,  # pyright: ignore[reportArgumentType]
+            v=0.5 * v_jump * normal,  # pyright: ignore[reportArgumentType]
+        )
+    )
+    flux_weak = cast("WaveState", flux_weak)
+
+    return op.project(  # pyright: ignore[reportUnknownVariableType]
+        dcoll,
+        dd,
+        dd.with_domain_tag("all_faces"),  # pyright: ignore[reportArgumentType]
+        c
+        * flux_weak,  # pyright: ignore[reportOperatorIssue, reportUnknownArgumentType]
+    )
 
 
 class _WaveStateTag:
     pass
 
 
-def wave_operator(actx, dcoll, c, w, quad_tag=None):
+def wave_operator(
+    actx: ArrayContext,
+    dcoll: DiscretizationCollection,
+    c: float,
+    w: WaveState,
+    quad_tag: DiscretizationTag | None = None,
+) -> ArrayOrContainer:
     dd_base = as_dofdesc("vol")
     dd_vol = DOFDesc("vol", quad_tag)
     dd_faces = DOFDesc("all_faces", quad_tag)
-    dd_btag = as_dofdesc(BTAG_ALL).with_discr_tag(quad_tag)
+    dd_btag = as_dofdesc(BTAG_ALL).with_discr_tag(
+        quad_tag  # pyright: ignore[reportArgumentType]
+    )
 
-    def interp_to_surf_quad(utpair):
-        local_dd = utpair.dd
-        local_dd_quad = local_dd.with_discr_tag(quad_tag)
-        return TracePair(
+    def interp_to_surf_quad(
+        utpair: TracePair[WaveState],  # pyright: ignore[reportInvalidTypeArguments]
+    ) -> TracePair[WaveState]:  # pyright: ignore[reportInvalidTypeArguments]
+        local_dd: DOFDesc = utpair.dd
+        local_dd_quad = local_dd.with_discr_tag(
+            quad_tag  # pyright: ignore[reportArgumentType]
+        )
+        return TracePair(  # pyright: ignore[reportUnknownVariableType]
             local_dd_quad,
-            interior=op.project(dcoll, local_dd, local_dd_quad, utpair.int),
-            exterior=op.project(dcoll, local_dd, local_dd_quad, utpair.ext),
+            interior=cast(
+                "WaveState",
+                cast(
+                    "object", op.project(dcoll, local_dd, local_dd_quad, utpair.int)
+                ),
+            ),  # pyright: ignore[reportArgumentType]
+            exterior=cast(
+                "WaveState",
+                cast(
+                    "object", op.project(dcoll, local_dd, local_dd_quad, utpair.ext)
+                ),
+            ),  # pyright: ignore[reportArgumentType]
         )
 
-    w_quad = op.project(dcoll, dd_base, dd_vol, w)
+    w_quad = cast(
+        "WaveState",
+        op.project(dcoll, dd_base, dd_vol, w),  # pyright: ignore[reportArgumentType]
+    )
     u = w_quad.u
     v = w_quad.v
 
-    dir_w = op.project(dcoll, dd_base, dd_btag, w)
+    dir_w = cast(
+        "WaveState",
+        op.project(
+            dcoll, dd_base, dd_btag, w  # pyright: ignore[reportArgumentType]
+        ),
+    )
     dir_u = dir_w.u
     dir_v = dir_w.v
     dir_bval = WaveState(u=dir_u, v=dir_v)
@@ -179,52 +240,81 @@ def wave_operator(actx, dcoll, c, w, quad_tag=None):
 
     return op.inverse_mass(
         dcoll,
-        WaveState(
-            u=-c * op.weak_local_div(dcoll, dd_vol, v),
-            v=-c * op.weak_local_grad(dcoll, dd_vol, u),
+        WaveState(  # pyright: ignore[reportOperatorIssue, reportUnknownArgumentType]
+            u=-c  # pyright: ignore[reportOperatorIssue, reportArgumentType]
+            * op.weak_local_div(
+                dcoll, dd_vol, v  # pyright: ignore[reportArgumentType]
+            ),
+            v=-c
+            * op.weak_local_grad(
+                dcoll, dd_vol, u
+            ),  # pyright: ignore[reportOperatorIssue, reportArgumentType]
         )
         + op.face_mass(
             dcoll,
             dd_faces,
-            wave_flux(
+            wave_flux(  # pyright: ignore[reportUnknownArgumentType]
                 actx,
                 dcoll,
                 c=c,
-                w_tpair=op.bdry_trace_pair(
-                    dcoll, dd_btag, interior=dir_bval, exterior=dir_bc
+                w_tpair=op.bdry_trace_pair(  # pyright: ignore[reportUnknownArgumentType]
+                    dcoll,
+                    dd_btag,
+                    interior=dir_bval,  # pyright: ignore[reportArgumentType]
+                    exterior=dir_bc,  # pyright: ignore[reportArgumentType]
                 ),
             )
-            + sum(
-                wave_flux(actx, dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
-                for tpair in op.interior_trace_pairs(
-                    dcoll, w, comm_tag=_WaveStateTag
+            + sum(  # pyright: ignore[reportCallIssue]
+                wave_flux(
+                    actx,
+                    dcoll,
+                    c=c,
+                    w_tpair=interp_to_surf_quad(
+                        tpair  # pyright: ignore[reportArgumentType, reportUnknownArgumentType]
+                    ),
+                )
+                for tpair in op.interior_trace_pairs(  # pyright: ignore[reportUnknownVariableType]
+                    dcoll,
+                    w,  # pyright: ignore[reportArgumentType]
+                    comm_tag=_WaveStateTag,
                 )
             ),
         ),
     )
 
 
-def bump(actx, dcoll, t=0):
+def bump(
+    actx: ArrayContext, dcoll: DiscretizationCollection, t: float = 0
+) -> ArrayOrContainer:
     source_center = np.array([0.2, 0.35, 0.1])[: dcoll.dim]
     source_width = 0.05
     source_omega = 3
 
     nodes = actx.thaw(dcoll.nodes())
-    center_dist = flat_obj_array(
-        [nodes[i] - source_center[i] for i in range(dcoll.dim)]
+    center_dist = flat([nodes[i] - source_center[i] for i in range(dcoll.dim)])
+
+    return np.cos(source_omega * t) * actx.np.exp(  # pyright: ignore[reportAny]
+        -np.dot(  # pyright: ignore[reportAny]
+            center_dist,  # pyright: ignore[reportArgumentType]
+            center_dist,  # pyright: ignore[reportArgumentType]
+        )
+        / source_width**2
     )
 
-    return np.cos(source_omega * t) * actx.np.exp(
-        -np.dot(center_dist, center_dist) / source_width**2
-    )
 
-
-def get_wave_rhs(*, actx, dim, order, ndofs, use_nonaffine_mesh=False):
+def get_wave_rhs(
+    *,
+    actx: ArrayContext,
+    dim: int,
+    order: int,
+    ndofs: int,
+    use_nonaffine_mesh: bool = False,
+) -> tuple[Callable[[WaveState], ArrayOrContainer], WaveState]:
     from math import ceil
 
     nunit_dofs = get_nunit_dofs(dim=dim, degree=order)
 
-    nel_1d = ceil(((ndofs / nunit_dofs) / 6) ** (1 / 3))
+    nel_1d = ceil(cast("float", ((ndofs / nunit_dofs) / 6) ** (1 / 3)))
     assert (6 * (nel_1d**3) * nunit_dofs) == ndofs
 
     if use_nonaffine_mesh:
@@ -262,8 +352,10 @@ def get_wave_rhs(*, actx, dim, order, ndofs, use_nonaffine_mesh=False):
 
     quad_tag = None
     fields = WaveState(
-        u=bump(actx, dcoll),
-        v=make_obj_array([dcoll.zeros(actx) for i in range(dcoll.dim)]),
+        u=cast("DOFArray", bump(actx, dcoll)),
+        v=new_1d(
+            [dcoll.zeros(actx) for _ in range(dcoll.dim)]
+        ),  # pyright: ignore[reportArgumentType]
     )
 
     c = 1
@@ -272,15 +364,25 @@ def get_wave_rhs(*, actx, dim, order, ndofs, use_nonaffine_mesh=False):
     # 5/4 to account for larger LSRK45 stability region
     dt = 1e-3
 
-    def rhs(t, w):
+    def rhs(t: float, w: WaveState) -> ArrayOrContainer:
         return wave_operator(actx, dcoll, c=c, w=w, quad_tag=quad_tag)
 
     logger.info("dt = %g", dt)
 
     t = np.float64(0.5)
-    fields = actx.thaw(actx.freeze(fields))
+    fields = cast(
+        "WaveState",
+        actx.thaw(
+            actx.freeze(
+                fields  # pyright: ignore[reportArgumentType, reportUnknownArgumentType]
+            )
+        ),
+    )
 
-    return lambda x: rhs(t, x), fields
+    def rhs_callable(x: WaveState) -> ArrayOrContainer:
+        return rhs(t, x)
+
+    return rhs_callable, fields
 
 
 # }}}
@@ -300,12 +402,14 @@ def main(
         for i_ndofs, ndofs in enumerate(ndofs_list):
             actx = _instantiate_actx_t(actx_t)
             actual_scalar_ndofs = get_actual_scalar_ndofs(
-                ndofs=ndofs, degree=degree, dim=dim
+                ndofs=int(ndofs), degree=degree, dim=dim
             )
             rhs_clbl, rhs_args = get_wave_rhs(
                 actx=actx, dim=dim, order=degree, ndofs=actual_scalar_ndofs
             )
-            compiled_rhs_clbl = actx.compile(rhs_clbl)
+            compiled_rhs_clbl = actx.compile(
+                rhs_clbl  # pyright: ignore[reportArgumentType]
+            )
 
             # {{{ warmup rounds
 
@@ -348,14 +452,18 @@ def main(
 
             gc.collect()
 
-    print(f"GDOFS/s for {dim}D-wave for {_NAME_TO_ACTX_CLASS.inv[actx_t]}:")
-    table = []
+    print(
+        f"GDOFS/s for {dim}D-wave for {_NAME_TO_ACTX_CLASS.inv[actx_t]}:"  # pyright: ignore[reportArgumentType]
+    )
+    table: list[list[str]] = []
     for i_degree, degree in enumerate(degrees):
         table.append(
             [
                 f"P{degree}",
                 *[
-                    stringify_dofs_per_s(dof_throughput[i_degree, i_ndofs])
+                    stringify_dofs_per_s(
+                        cast("float", dof_throughput[i_degree, i_ndofs])
+                    )
                     for i_ndofs, _ in enumerate(ndofs_list)
                 ],
             ]
@@ -377,6 +485,13 @@ _NAME_TO_ACTX_CLASS = bidict(
         "pytato:dgfem_opt": DGFEMOptimizerArrayContext,
     }
 )
+
+
+@dataclass(frozen=True)
+class CLIArgs:
+    dim: int
+    degrees: str
+    actx: str
 
 
 if __name__ == "__main__":
@@ -422,7 +537,7 @@ if __name__ == "__main__":
         required=True,
     )
 
-    args = parser.parse_args()
+    args = CLIArgs(**vars(parser.parse_args()))  # pyright: ignore[reportAny]
     main(
         dim=args.dim,
         degrees=[int(k.strip()) for k in args.degrees.split(",")],
