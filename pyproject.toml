@@ -26,12 +26,18 @@ classifiers = [
 dependencies = [
     "arraycontext",
     "autoflake",
+    "black",
     "feinsum",
     "grudge",
+    "islpy",
     "loopy",
     "meshmode",
+    "numpy",
+    "optype",
     "pyopencl",
     "pytato",
+    "types-Pygments",
+    "z3-solver"
 ]
 
 
@@ -39,6 +45,7 @@ dependencies = [
 preview = true
 line-length = 85
 exclude = [
+    "actx_dgfem_suite/suite/*", # auto-generated code -> better to avoid linting
     "actx_dgfem_suite/suite_generators/cns.py" # pulls lots of deps (mirgecom, etc.) -> better to just avoid it
 ]
 
@@ -62,7 +69,42 @@ extend-select = [
   "TC",
 ]
 
-ignore = ["RUF052", "RUF067", "B023", "C901", "N806"]
+ignore = ["RUF052", "RUF067", "B023", "C901", "N806", "UP035"]
 
 [tool.black]
 line-length = 85
+
+[tool.basedpyright]
+reportImplicitStringConcatenation = "none"
+reportUnnecessaryIsInstance = "none"
+reportUnusedCallResult = "none"
+reportExplicitAny = "none"
+reportPrivateUsage = "hint"
+reportUnusedParameter = "hint"
+reportImportCycles = "none"
+reportUnnecessaryTypeIgnoreComment = "warning"
+
+pythonVersion = "3.12"
+pythonPlatform = "All"
+
+ignore = [
+    "build",
+    "doc/_build",
+    "doc/conf.py",
+  
+    # pulls lots of deps -> better to avoid it.
+    "actx_dgfem_suite/suite_generators/cns.py",
+    # auto-generated code -> no need to check.
+    "actx_dgfem_suite/suite/*",
+]
+
+[[tool.basedpyright.executionEnvironments]]
+root = "test"
+reportUnknownArgumentType = "hint"
+reportUnknownParameterType = "hint"
+reportUnknownVariableType = "hint"
+reportUnknownMemberType = "hint"
+reportMissingParameterType = "hint"
+reportAny = "hint"
+reportArgumentType = "hint"
+reportAttributeAccessIssue = "hint"

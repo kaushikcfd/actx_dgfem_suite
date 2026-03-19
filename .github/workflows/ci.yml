@@ -1,0 +1,47 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -l {0}
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task: [ruff, basedpyright, pytest]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: ".test-conda-env.yml"
+          activate-environment: "actx-dgfem-env"
+          auto-activate-base: false
+          auto-update-conda: true
+
+      - name: Install actx_dgfem_suite
+        run: pip install .
+
+      - name: Run ruff
+        if: matrix.task == 'ruff'
+        run: ruff check
+
+      - name: Run basedpyright
+        if: matrix.task == 'basedpyright'
+        run: basedpyright
+
+      - name: Run pytest
+        if: matrix.task == 'pytest'
+        run: |
+          cd test
+          pytest -v .
