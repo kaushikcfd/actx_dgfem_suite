@@ -1,11 +1,10 @@
-from typing import cast
-
 import pytato as pt
 from pytato.transform import (
     ArrayOrNamesTc,
     CopyMapper,
 )
 from pytools import memoize_method
+from typing_extensions import override
 
 
 class MassInverseFuser(CopyMapper):
@@ -17,7 +16,8 @@ class MassInverseFuser(CopyMapper):
     def memoized_einsum(self, subscripts: str, *operands: pt.Array) -> pt.Array:
         return pt.einsum(subscripts, *operands)
 
-    def map_einsum(self, expr: pt.Einsum) -> pt.Einsum:
+    @override
+    def map_einsum(self, expr: pt.Einsum) -> pt.Array:
         if (
             pt.analysis.is_einsum_similar_to_subscript(expr, "e,ik,ek->ei")
             and isinstance(expr.args[2], pt.Einsum)
@@ -87,4 +87,4 @@ def fuse_mass_inverses(expr: ArrayOrNamesTc) -> ArrayOrNamesTc:
     or gradient operator.
     """
     mapper = MassInverseFuser()
-    return cast("ArrayOrNamesTc", mapper(expr))
+    return mapper(expr)
