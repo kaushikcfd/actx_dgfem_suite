@@ -1,4 +1,5 @@
 from dataclasses import is_dataclass
+from typing import cast
 
 from arraycontext import is_array_container_type
 
@@ -10,11 +11,9 @@ def get_actx_dgfem_suite_path() -> str:
     import importlib.util
     import os
 
-    module_path = os.path.abspath(
-        os.path.join(
-            importlib.util.find_spec("actx_dgfem_suite").origin, os.path.pardir
-        )
-    )
+    spec = importlib.util.find_spec("actx_dgfem_suite")
+    assert spec is not None and spec.origin is not None
+    module_path = os.path.abspath(os.path.join(spec.origin, os.path.pardir))
     assert os.path.isdir(module_path), module_path
     return os.path.abspath(module_path)
 
@@ -65,7 +64,7 @@ def get_benchmark_ref_output_path(equation: str, dim: int, degree: int) -> str:
     )
 
 
-def get_benchmark_rhs_invoker(equation: str, dim: int, degree: int):
+def get_benchmark_rhs_invoker(equation: str, dim: int, degree: int) -> type:
     import importlib.util
     import os
 
@@ -81,12 +80,10 @@ def get_benchmark_rhs_invoker(equation: str, dim: int, degree: int):
 
     benchmark_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(benchmark_module)
-    rhs_invoker = benchmark_module.RHSInvoker
-
-    return rhs_invoker
+    return cast("type", benchmark_module.RHSInvoker)
 
 
-def is_dataclass_array_container(ary) -> bool:
+def is_dataclass_array_container(ary: object) -> bool:
     from meshmode.dof_array import DOFArray
 
     return (

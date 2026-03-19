@@ -3,7 +3,7 @@ import tempfile
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 from pyopencl.tools import (
-    pytest_generate_tests_for_pyopencl as pytest_generate_tests,  # noqa: F401
+    pytest_generate_tests_for_pyopencl as pytest_generate_tests,  # noqa: F401 # pyright: ignore[reportUnusedImport]
 )
 
 from actx_dgfem_suite.codegen import SuiteGeneratingArraycontext
