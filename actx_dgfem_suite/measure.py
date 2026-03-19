@@ -5,6 +5,7 @@ Utilities for performance evaluation of a DG-FEM benchmark.
 """
 
 from time import time
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from arraycontext import (
@@ -23,6 +24,9 @@ from actx_dgfem_suite.utils import (
     get_benchmark_ref_output_path,
     get_benchmark_rhs_invoker,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _instantiate_actx_t(actx_t: type[ArrayContext]) -> ArrayContext:
@@ -49,9 +53,11 @@ def _instantiate_actx_t(actx_t: type[ArrayContext]) -> ArrayContext:
                 " device."
             )
 
-        from jax.config import config
+        import jax
 
-        config.update("jax_enable_x64", True)
+        jax.config.update(  # pyright: ignore[reportUnknownMemberType]
+            "jax_enable_x64", True
+        )
         return actx_t()
     else:
         raise NotImplementedError(actx_t)
@@ -71,57 +77,75 @@ def get_flop_rate(
 
     rhs_invoker = get_benchmark_rhs_invoker(equation, dim, degree)
     actx = _instantiate_actx_t(actx_t)
-    rhs_clbl = rhs_invoker(actx)
+    rhs_clbl: Callable[..., Any] = rhs_invoker(actx)  # pyright: ignore[reportAny]
 
-    with open(
-        get_benchmark_ref_input_arguments_path(equation, dim, degree), "rb"
-    ) as fp:
-        with array_context_for_pickling(actx):
-            np_args, np_kwargs = pickle.load(fp)
+    with (
+        open(
+            get_benchmark_ref_input_arguments_path(equation, dim, degree), "rb"
+        ) as fp,
+        array_context_for_pickling(actx),
+    ):
+        loaded = cast("tuple[tuple[Any, ...], dict[str, Any]]", pickle.load(fp))
+        np_args, np_kwargs = loaded
 
-    with open(get_benchmark_ref_output_path(equation, dim, degree), "rb") as fp:
-        with array_context_for_pickling(actx):
-            ref_output = pickle.load(fp)
+    with (
+        open(get_benchmark_ref_output_path(equation, dim, degree), "rb") as fp,
+        array_context_for_pickling(actx),
+    ):
+        ref_output: Any = pickle.load(fp)  # pyright: ignore[reportAny]
 
     if all(
         (
-            is_dataclass_array_container(arg)
+            is_dataclass_array_container(arg)  # pyright: ignore[reportAny]
             or (
                 isinstance(arg, np.ndarray)
                 and arg.dtype == "O"
-                and all(is_dataclass_array_container(el) for el in arg)
+                and all(
+                    is_dataclass_array_container(el)  # pyright: ignore[reportAny]
+                    for el in arg  # pyright: ignore[reportAny]
+                )
             )
             or np.isscalar(arg)
         )
-        for arg in np_args
+        for arg in np_args  # pyright: ignore[reportAny]
     ) and all(
-        is_dataclass_array_container(arg) or np.isscalar(arg)
-        for arg in np_kwargs.values()
+        is_dataclass_array_container(arg)  # pyright: ignore[reportAny]
+        or np.isscalar(arg)  # pyright: ignore[reportAny]
+        for arg in np_kwargs.values()  # pyright: ignore[reportAny]
     ):
         args, kwargs = np_args, np_kwargs
-    elif any(is_dataclass_array_container(arg) for arg in np_args) or any(
-        is_dataclass_array_container(arg) for arg in np_kwargs.values()
+    elif any(
+        is_dataclass_array_container(arg)  # pyright: ignore[reportAny]
+        for arg in np_args  # pyright: ignore[reportAny]
+    ) or any(
+        is_dataclass_array_container(arg)  # pyright: ignore[reportAny]
+        for arg in np_kwargs.values()  # pyright: ignore[reportAny]
     ):
         raise NotImplementedError("Pickling not implemented for input" " types.")
     else:
         args, kwargs = (
-            tuple(actx.from_numpy(arg) for arg in np_args),
-            {kw: actx.from_numpy(arg) for kw, arg in np_kwargs.items()},
+            tuple(
+                actx.from_numpy(arg) for arg in np_args  # pyright: ignore[reportAny]
+            ),
+            {
+                kw: actx.from_numpy(arg)  # pyright: ignore[reportAny]
+                for kw, arg in np_kwargs.items()  # pyright: ignore[reportAny]
+            },
         )
 
-    if is_dataclass_array_container(ref_output):
-        np_ref_output = actx.to_numpy(ref_output)
+    if is_dataclass_array_container(ref_output):  # pyright: ignore[reportAny]
+        np_ref_output = actx.to_numpy(ref_output)  # pyright: ignore[reportAny]
     else:
-        np_ref_output = ref_output
+        np_ref_output = ref_output  # pyright: ignore[reportAny]
 
     # {{{ verify correctness for actx_t
 
     if 0:
-        output = rhs_clbl(*args, **kwargs)
+        output = rhs_clbl(*args, **kwargs)  # pyright: ignore[reportAny]
         rec_multimap_array_container(
             np.testing.assert_allclose,
             np_ref_output,
-            actx.to_numpy(output),
+            actx.to_numpy(output),  # pyright: ignore[reportAny]
         )
 
     # }}}
