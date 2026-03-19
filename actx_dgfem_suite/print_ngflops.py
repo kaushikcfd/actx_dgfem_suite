@@ -5,8 +5,10 @@ A binary for printing roofline for DG-FEM operators.Call as
 
 import argparse
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
+import numpy.typing as npt
 from tabulate import tabulate
 
 from actx_dgfem_suite.perf_analysis import get_float64_flops
@@ -24,7 +26,9 @@ def main(
     dims: Sequence[int],
     degrees: Sequence[int],
 ):
-    f64_flops = np.empty([len(dims), len(equations), len(degrees)])
+    f64_flops: npt.NDArray[np.float64] = np.empty(
+        [len(dims), len(equations), len(degrees)]
+    )
 
     for idim, dim in enumerate(dims):
         for iequation, equation in enumerate(equations):
@@ -36,12 +40,16 @@ def main(
     for idim, dim in enumerate(dims):
         for iequation, equation in enumerate(equations):
             print(f"Roofline GFLOPS/s for {dim}D-{equation}:")
-            table = []
+            table: list[list[str]] = []
             for idegree, degree in enumerate(degrees):
                 table.append(
                     [
                         f"P{degree}",
-                        stringify_flops(f64_flops[idim, iequation, idegree]),
+                        stringify_flops(
+                            f64_flops[
+                                idim, iequation, idegree
+                            ]  # pyright: ignore[reportAny]
+                        ),
                     ]
                 )
             print(tabulate(table, tablefmt="fancy_grid", headers=["", "Roofline"]))
@@ -90,7 +98,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     main(
-        equations=[k.strip() for k in args.equations.split(",")],
-        dims=[int(k.strip()) for k in args.dims.split(",")],
-        degrees=[int(k.strip()) for k in args.degrees.split(",")],
+        equations=[k.strip() for k in cast("str", args.equations).split(",")],
+        dims=[int(k.strip()) for k in cast("str", args.dims).split(",")],
+        degrees=[int(k.strip()) for k in cast("str", args.degrees).split(",")],
     )
