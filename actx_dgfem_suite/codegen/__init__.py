@@ -1,4 +1,6 @@
-r"""
+from __future__ import annotations
+
+__doc__ = r"""
 Helpers to generate python code compatible with any
 :class:`~arraycontext.ArrayContext`\ 's compile method.
 
@@ -9,11 +11,10 @@ import ast
 import os
 import re
 import sys
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
-import autoflake
+import autoflake  # pyright: ignore[reportMissingTypeStubs]
 import black
 import numpy as np
 import pytato as pt
@@ -29,12 +30,21 @@ from arraycontext.impl.pytato.compile import (
 )
 from meshmode.dof_array import array_context_for_pickling
 from pytools import memoize_method
+from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 from actx_dgfem_suite.utils import (
     get_actx_dgfem_suite_path,
     is_dataclass_array_container,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import pyopencl as cl
+    import pyopencl.array as cl_array
+    from arraycontext.container import SerializationKey
+    from arraycontext.typing import ArrayOrContainerOrScalar, ArrayOrScalar
 
 
 def remove_tags_with_typenames(
@@ -69,7 +79,10 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
     :class:`arraycontext.ArrayContext` / :class:`arraycontext.FakeNumpyNamespace`.
     """
 
+    actx: SuiteGeneratingArraycontext  # pyright: ignore[reportIncompatibleVariableOverride]
+
     @property
+    @override
     def compiled_function_returning_array_container_class(
         self,
     ) -> type[CompiledFunction]:
@@ -80,6 +93,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         raise NotImplementedError
 
     @property
+    @override
     def compiled_function_returning_array_class(self) -> type[CompiledFunction]:
         # This is purposefully left unimplemented to ensure that we do not run
         # into potential mishaps by using the super-class' implementation.
@@ -87,7 +101,10 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         # not rely on us overriding these routines.
         raise NotImplementedError
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+    @override
+    def __call__(
+        self, *args: ArrayOrContainerOrScalar, **kwargs: ArrayOrContainerOrScalar
+    ) -> ArrayOrContainerOrScalar:
         """
         Performs the following operations:
 
@@ -106,17 +123,27 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         )
         from arraycontext.impl.pytato.utils import _ary_container_key_stringifier
 
-        args, kwargs = (
-            tuple(self.actx.thaw(self.actx.freeze(arg)) for arg in args),
+        args, kwargs = (  # pyright: ignore[reportUnknownVariableType]
+            tuple(
+                self.actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                    arg
+                )
+                for arg in args
+            ),
             {
-                kw: self.actx.thaw(self.actx.freeze(arg))
+                kw: self.actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType]
+                    arg
+                )
                 for kw, arg in kwargs.items()
             },
         )
 
         # {{{ remove bad tags
 
-        def _remove_bad_tags(ary):
+        def _remove_bad_tags(
+            ary: ArrayOrContainerOrScalar,
+        ) -> ArrayOrContainerOrScalar:
+            assert isinstance(ary, pt.Array)
             new_tags = {
                 tag
                 for tag in ary.tags
@@ -124,7 +151,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             }
             return ary.copy(tags=frozenset(new_tags))
 
-        args = tuple(
+        args = tuple(  # pyright: ignore[reportAssignmentType]
             (
                 arg
                 if np.isscalar(arg)
@@ -132,7 +159,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             )
             for arg in args
         )
-        kwargs = {
+        kwargs = {  # pyright: ignore[reportAssignmentType]
             kw: (
                 arg
                 if np.isscalar(arg)
@@ -152,7 +179,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         except KeyError:
             pass
         else:
-            return compiled_f(arg_id_to_arg)
+            return compiled_f(arg_id_to_arg)  # pyright: ignore[reportAny]
 
         dict_of_named_arrays = {}
         input_id_to_name_in_program = {
@@ -160,23 +187,31 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             for arg_id in arg_id_to_arg
         }
 
-        output_template = self.f(
+        output_template = self.f(  # pyright: ignore[reportAny]
             *[
                 _get_f_placeholder_args(
-                    arg, iarg, input_id_to_name_in_program, self.actx
+                    arg,
+                    iarg,
+                    input_id_to_name_in_program,
+                    self.actx,
                 )
                 for iarg, arg in enumerate(args)
             ],
             **{
                 kw: _get_f_placeholder_args(
-                    arg, kw, input_id_to_name_in_program, self.actx
+                    arg,
+                    kw,
+                    input_id_to_name_in_program,
+                    self.actx,
                 )
                 for kw, arg in kwargs.items()
             },
         )
 
         if not (
-            is_array_container_type(output_template.__class__)
+            is_array_container_type(
+                output_template.__class__  # pyright: ignore[reportAny]
+            )
             or isinstance(output_template, pt.Array)
         ):
             # TODO: We could possibly just short-circuit this interface if the
@@ -184,10 +219,13 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             raise NotImplementedError(
                 f"Function '{self.f.__name__}' to be compiled "
                 "did not return an array container or pt.Array,"
-                f" but an instance of '{output_template.__class__}' instead."
+                f" but an instance of '{output_template.__class__}' instead."  # pyright: ignore[reportAny]
             )
 
-        def _as_dict_of_named_arrays(keys, ary):
+        def _as_dict_of_named_arrays(
+            keys: tuple[SerializationKey, ...], ary: ArrayOrScalar
+        ) -> ArrayOrScalar:
+            assert isinstance(ary, pt.Array)
             name = "_pt_out_" + _ary_container_key_stringifier(keys)
             dict_of_named_arrays[name] = ary
             return ary
@@ -197,7 +235,9 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         from .pytato_target import generate_arraycontext_code
 
         pt_dict_of_named_arrays = pt.transform.deduplicate_data_wrappers(
-            pt.make_dict_of_named_arrays(dict_of_named_arrays)
+            pt.make_dict_of_named_arrays(
+                dict_of_named_arrays  # pyright: ignore[reportUnknownArgumentType]
+            )
         )
         pt_dict_of_named_arrays = pt.rewrite_einsums_with_no_broadcasts(
             pt_dict_of_named_arrays
@@ -360,33 +400,35 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         black.format_file_in_place(
             Path(self.actx.main_file_path),
             fast=False,
-            mode=black.Mode(line_length=80),
+            mode=black.Mode(line_length=85),
             write_back=black.WriteBack.YES,
         )
 
         with open(f"{self.actx.datawrappers_path}", "wb") as fp:
-            np.savez(fp, **inner_code_prg.numpy_arrays_to_store)
+            np.savez(fp, allow_pickle=True, **inner_code_prg.numpy_arrays_to_store)
 
         with open(f"{self.actx.pickled_ref_input_args_path}", "wb") as fp:
             import pickle
 
             if all(
-                (
+                (  # pyright: ignore[reportUnknownArgumentType]
                     is_dataclass_array_container(arg)
                     or (
                         isinstance(arg, np.ndarray)
-                        and arg.dtype == "O"
+                        and arg.dtype  # pyright: ignore[reportUnknownMemberType]
+                        == "O"
                         and all(is_dataclass_array_container(el) for el in arg)
                     )
                     or np.isscalar(arg)
                 )
                 for arg in args
             ) and all(
-                (
+                (  # pyright: ignore[reportUnknownArgumentType]
                     is_dataclass_array_container(arg)
                     or (
                         isinstance(arg, np.ndarray)
-                        and arg.dtype == "O"
+                        and arg.dtype  # pyright: ignore[reportUnknownMemberType]
+                        == "O"
                         and all(is_dataclass_array_container(el) for el in arg)
                     )
                     or np.isscalar(arg)
@@ -402,13 +444,26 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
                     "Pickling not implemented for input" " types."
                 )
             else:
-                np_args = tuple(self.actx.to_numpy(arg) for arg in args)
+                np_args = tuple(
+                    self.actx.to_numpy(  # pyright: ignore[reportUnknownMemberType]
+                        arg
+                    )
+                    for arg in args
+                )
                 np_kwargs = {
-                    kw: self.actx.to_numpy(arg) for kw, arg in kwargs.items()
+                    kw: self.actx.to_numpy(  # pyright: ignore[reportUnknownMemberType]
+                        arg
+                    )
+                    for kw, arg in kwargs.items()
                 }
                 pickle.dump((np_args, np_kwargs), fp)
 
-        ref_out = self.actx.thaw(self.actx.freeze(self.f(*args, **kwargs)))
+        ref_out = cast(
+            "ArrayOrContainerOrScalar",
+            self.actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType]
+                self.f(*args, **kwargs)  # pyright: ignore[reportAny]
+            ),
+        )
         ref_out = rec_map_array_container(_remove_bad_tags, ref_out)
 
         with open(f"{self.actx.pickled_ref_output_path}", "wb") as fp:
@@ -416,13 +471,18 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 
             if is_dataclass_array_container(ref_out) or (
                 isinstance(ref_out, np.ndarray)
-                and ref_out.dtype == "O"
+                and ref_out.dtype == "O"  # pyright: ignore[reportUnknownMemberType]
                 and all(is_dataclass_array_container(el) for el in ref_out)
             ):
                 with array_context_for_pickling(self.actx.clone()):
                     pickle.dump(ref_out, fp)
             else:
-                pickle.dump(self.actx.to_numpy(ref_out), fp)
+                pickle.dump(
+                    self.actx.to_numpy(  # pyright: ignore[reportUnknownMemberType]
+                        ref_out
+                    ),
+                    fp,
+                )
 
         self_actx_clone = self.actx.clone()
 
@@ -431,8 +491,10 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         variables_after_execution: dict[str, Any] = {
             "_MODULE_SOURCE_CODE": host_code,  # helps pudb
         }
-        exec(host_code, variables_after_execution)
-        compiled_func = variables_after_execution["RHSInvoker"](self_actx_clone)
+        exec(host_code, variables_after_execution)  # noqa: S102
+        compiled_func = variables_after_execution[  # pyright: ignore[reportAny]
+            "RHSInvoker"
+        ](self_actx_clone)
 
         # }}}
 
@@ -440,17 +502,21 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 
         # {{{ test that the codegen was successful
 
-        output = self.program_cache[arg_id_to_descr](*args, **kwargs)
+        output = self.program_cache[arg_id_to_descr](  # pyright: ignore[reportAny]
+            *args, **kwargs
+        )
 
         rec_multimap_array_container(
             np.testing.assert_allclose,
-            self_actx_clone.to_numpy(output),
-            self.actx.to_numpy(ref_out),
+            self_actx_clone.to_numpy(  # pyright: ignore[reportUnknownMemberType]
+                output  # pyright: ignore[reportAny]
+            ),
+            self.actx.to_numpy(ref_out),  # pyright: ignore[reportUnknownMemberType]
         )
 
         # }}}
 
-        return output
+        return output  # pyright: ignore[reportAny]
 
 
 class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
@@ -461,10 +527,15 @@ class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
     generated code.
     """
 
+    main_file_path: str
+    datawrappers_path: str
+    pickled_ref_input_args_path: str
+    pickled_ref_output_path: str
+
     def __init__(
         self,
-        queue,
-        allocator,
+        queue: cl.CommandQueue,
+        allocator: cl_array.Allocator | None = None,
         *,
         main_file_path: str,
         datawrappers_path: str,
@@ -490,6 +561,7 @@ class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
         self.pickled_ref_input_args_path = pickled_ref_input_args_path
         self.pickled_ref_output_path = pickled_ref_output_path
 
+    @override
     def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
         if f.__name__ == "rhs":
             # We only compile RHS functions
