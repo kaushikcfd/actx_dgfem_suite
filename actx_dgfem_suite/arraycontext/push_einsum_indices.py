@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytato as pt
 from pytato.array import NormalizedSlice, ShapeComponent
@@ -8,6 +8,7 @@ from pytato.transform import (
     CopyMapper,
     _verify_is_array,
 )
+from typing_extensions import override
 
 if TYPE_CHECKING:
     from pymbolic.typing import Integer
@@ -28,11 +29,12 @@ def _is_slice_trivial(slice_: NormalizedSlice, axis_len: ShapeComponent) -> bool
 
 
 class EinsumIndexPusher(CopyMapper):
+    @override
     def map_basic_index(self, expr: pt.BasicIndex) -> pt.Array:
         if isinstance(expr.array, pt.Einsum):
-            from pytato.array import EinsumElementwiseAxis
+            from pytato.array import EinsumAxisDescriptor, EinsumElementwiseAxis
 
-            descr_to_slice: dict[EinsumElementwiseAxis, slice | Integer] = {
+            descr_to_slice: dict[EinsumAxisDescriptor, slice | Integer] = {
                 EinsumElementwiseAxis(dim): (
                     idx
                     if not isinstance(idx, NormalizedSlice)
@@ -47,11 +49,11 @@ class EinsumIndexPusher(CopyMapper):
                 )
                 or isinstance(idx, INT_CLASSES)
             }
-            new_einsum_operands = []
+            new_einsum_operands: list[pt.Array] = []
             for ary, access_descrs in zip(
                 expr.array.args, expr.array.access_descriptors, strict=True
             ):
-                slices: Integer | slice = []
+                slices: list[Integer | slice] = []
                 atleast_one_non_trivial_slice = False
                 for access_descr in access_descrs:
                     try:
@@ -111,4 +113,4 @@ def push_einsum_indices_to_operands(expr: ArrayOrNamesTc) -> ArrayOrNamesTc:
         True
     """
     mapper = EinsumIndexPusher()
-    return cast("ArrayOrNamesTc", mapper(expr))
+    return mapper(expr)
