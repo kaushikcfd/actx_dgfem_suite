@@ -90,6 +90,9 @@ class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
         from actx_dgfem_suite.arraycontext.metadata import (
             IncomingEisumTag,
         )
+        from actx_dgfem_suite.arraycontext.no_fusion_actx import (
+            add_gbarrier_between_disjoint_loop_nests,
+        )
 
         if not any(
             tv.tags_of_type(IncomingEisumTag)
@@ -98,7 +101,7 @@ class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
             return self.comptime_actx.transform_loopy_program(t_unit)
 
         t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
-        # FIXME: Add gbarriers.
+        t_unit = add_gbarrier_between_disjoint_loop_nests(t_unit)
 
         if self.ir_to_inspect == "loopy":
             raise OptimizedDGFemIRInspectingActxError(t_unit)
