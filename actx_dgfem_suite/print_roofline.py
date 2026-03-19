@@ -4,6 +4,7 @@ A binary for printing roofline for DG-FEM operators.Call as
 """
 
 import argparse
+import dataclasses as dc
 from collections.abc import Sequence
 
 import numpy as np
@@ -37,17 +38,27 @@ def main(
     for idim, dim in enumerate(dims):
         for iequation, equation in enumerate(equations):
             print(f"Roofline GFLOPS/s for {dim}D-{equation}:")
-            table = []
+            table: list[list[str]] = []
             for idegree, degree in enumerate(degrees):
                 table.append(
                     [
                         f"P{degree}",
                         stringify_flops(
-                            roofline_flop_rate[idim, iequation, idegree]
+                            roofline_flop_rate[
+                                idim, iequation, idegree
+                            ]  # pyright: ignore[reportAny]
                         ),
                     ]
                 )
             print(tabulate(table, tablefmt="fancy_grid", headers=["", "Roofline"]))
+
+
+@dc.dataclass(frozen=True)
+class CLIArgs:
+    equations: str
+    dims: str
+    degrees: str
+    device: str
 
 
 if __name__ == "__main__":
@@ -99,7 +110,7 @@ if __name__ == "__main__":
         required=False,
     )
 
-    args = parser.parse_args()
+    args = CLIArgs(**vars(parser.parse_args()))  # pyright: ignore[reportAny]
     main(
         equations=[k.strip() for k in args.equations.split(",")],
         dims=[int(k.strip()) for k in args.dims.split(",")],
