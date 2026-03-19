@@ -5,11 +5,13 @@ from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
 import feinsum as fnsm
+import numpy as np
 import pytato as pt
 from bidict import frozenbidict
 from constantdict import constantdict
-from pytato.array import EinsumReductionAxis
+from pytato.array import EinsumReductionAxis, ShapeType
 from pytools import UniqueNameGenerator
+from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext.metadata import EinsumAxisTag, IncomingEisumTag
 
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 def _fset_union(s: Iterable[frozenset[pt.Array]]) -> frozenset[pt.Array]:
     from functools import reduce
 
-    return reduce(lambda x, y: x | y, s, frozenset())
+    return reduce(lambda x, y: x | y, s, frozenset[pt.Array]())
 
 
 @dc.dataclass(frozen=True)
@@ -63,9 +65,12 @@ class DataflowBuilder(pt.transform.CachedWalkMapper[[]]):
         self.succs: dict[pt.Array, set[pt.Array]] = {}
         self.preds: dict[pt.Array, set[pt.Array]] = {}
         self.node_to_id: dict[pt.Array, str] = {}
-        self.direct_pred_getter = pt.analysis.DirectPredecessorsGetter()
-        self.vng = UniqueNameGenerator([""])
+        self.direct_pred_getter: pt.analysis.DirectPredecessorsGetter = (
+            pt.analysis.DirectPredecessorsGetter()
+        )
+        self.vng: UniqueNameGenerator = UniqueNameGenerator([""])
 
+    @override
     def get_cache_key(
         self, expr: pt.transform.ArrayOrNames
     ) -> pt.transform.ArrayOrNames:
@@ -75,7 +80,10 @@ class DataflowBuilder(pt.transform.CachedWalkMapper[[]]):
         self.succs.setdefault(from_, set()).add(to)
         self.preds.setdefault(to, set()).add(from_)
 
-    def post_visit(self, expr: pt.ArrayOrNames | pt.FunctionDefinition) -> None:
+    @override
+    def post_visit(
+        self, expr: pt.transform.ArrayOrNames | pt.function.FunctionDefinition
+    ) -> None:
         if isinstance(expr, pt.Array):
             assert not isinstance(expr, pt.NamedArray)
             for pred in self.direct_pred_getter(expr):
@@ -99,7 +107,7 @@ def get_dataflow_graph(expr: pt.transform.ArrayOrNames) -> DataFlowGraph:
 
 def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
     # Discontinued using it since quadratic.
-    import z3
+    import z3  # pyright: ignore[reportMissingTypeStubs]
 
     V = frozenset(dfg.node_to_id.values())
     c = constantdict(
@@ -109,16 +117,38 @@ def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
     succs = dfg.id_succs
     opt = z3.Optimize()
     # f[v]: Materialization decision variables (See Defn. (TODO) in paper)
-    f = constantdict({v: z3.Bool(f"f_{v}") for v in V})
+    f = constantdict(
+        {v: z3.Bool(f"f_{v}") for v in V}  # pyright: ignore[reportUnknownMemberType]
+    )
     # P[v][u]: True iff node u is in P_f(v) (See Defn. (TODO) in paper)
     # TODO: optimize this by considering only recursive preds of v.
     P = constantdict(
-        {v: constantdict({u: z3.Bool(f"P_{v}_{u}") for u in V}) for v in V}
+        {
+            v: constantdict(
+                {
+                    u: z3.Bool(  # pyright: ignore[reportUnknownMemberType]
+                        f"P_{v}_{u}"
+                    )
+                    for u in V
+                }
+            )
+            for v in V
+        }
     )
     # U[v][u]: True iff node u is in U_f^E(v) (See Defn. (TODO) in paper)
     # TODO: optimize this by considering only recursive preds of v.
     U = constantdict(
-        {v: constantdict({u: z3.Bool(f"U_{v}_{u}") for u in V}) for v in V}
+        {
+            v: constantdict(
+                {
+                    u: z3.Bool(  # pyright: ignore[reportUnknownMemberType]
+                        f"U_{v}_{u}"
+                    )
+                    for u in V
+                }
+            )
+            for v in V
+        }
     )
 
     print("Started assembling...")
@@ -128,48 +158,113 @@ def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
         for u in V:
             if not preds[v]:
                 # If no predecessors, sets are empty
-                opt.add(P[v][u] == False)  # noqa: E712
-                opt.add(U[v][u] == False)  # noqa: E712
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    P[v][u] == False  # noqa: E712
+                )
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    U[v][u] == False  # noqa: E712
+                )
             else:
-                p_terms = []
-                u_terms = []
+                p_terms: list[object] = []
+                u_terms: list[object] = []
                 for p in preds[v]:
                     # Construct P_f(v) (See Defn. (TODO) in the paper)
                     p_terms.append(
-                        z3.Or(z3.And(f[p], u == p), z3.And(z3.Not(f[p]), P[p][u]))
+                        z3.Or(  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+                            z3.And(  # pyright: ignore[reportUnknownMemberType]
+                                f[p], u == p
+                            ),
+                            z3.And(  # pyright: ignore[reportUnknownMemberType]
+                                z3.Not(  # pyright: ignore[reportUnknownMemberType]
+                                    f[p]
+                                ),
+                                P[p][u],
+                            ),
+                        )
                     )
                     # Construct U_f^E(v) (See Defn. (TODO) in the paper)
                     if c[p] == 1:
-                        u_terms.append(z3.And(z3.Not(f[p]), z3.Or(u == p, U[p][u])))
+                        u_terms.append(
+                            z3.And(  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                                z3.Not(  # pyright: ignore[reportUnknownMemberType]
+                                    f[p]
+                                ),
+                                z3.Or(  # pyright: ignore[reportUnknownMemberType]
+                                    u == p, U[p][u]
+                                ),
+                            )
+                        )
                     else:
-                        u_terms.append(z3.And(z3.Not(f[p]), U[p][u]))
+                        u_terms.append(
+                            z3.And(  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                                z3.Not(  # pyright: ignore[reportUnknownMemberType]
+                                    f[p]
+                                ),
+                                U[p][u],
+                            )
+                        )
                 # u is in the set if it comes from ANY predecessor path
-                opt.add(P[v][u] == z3.Or(p_terms))
-                opt.add(U[v][u] == z3.Or(u_terms))
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    P[v][u]
+                    == z3.Or(p_terms)  # pyright: ignore[reportUnknownMemberType]
+                )
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    U[v][u]
+                    == z3.Or(u_terms)  # pyright: ignore[reportUnknownMemberType]
+                )
 
     # Apply Constraints (See Defn. TODO)
     for v in V:
         # |P_f(v)| <= 2
-        opt.add(z3.Sum([z3.If(P[v][u], 1, 0) for u in V]) <= 2)
+        opt.add(  # pyright: ignore[reportUnknownMemberType]
+            z3.Sum(  # pyright: ignore[reportUnknownMemberType]
+                [
+                    z3.If(P[v][u], 1, 0)  # pyright: ignore[reportUnknownMemberType]
+                    for u in V
+                ]
+            )
+            <= 2
+        )
         # |U_f^E(v)| <= 1
-        opt.add(z3.Sum([z3.If(U[v][u], 1, 0) for u in V]) <= 1)
+        opt.add(  # pyright: ignore[reportUnknownMemberType]
+            z3.Sum(  # pyright: ignore[reportUnknownMemberType]
+                [
+                    z3.If(U[v][u], 1, 0)  # pyright: ignore[reportUnknownMemberType]
+                    for u in V
+                ]
+            )
+            <= 1
+        )
         # c(v) = 1 -> U_f^E(v) is empty
         if c[v] == 1:
             for u in V:
-                opt.add(U[v][u] == False)  # noqa: E712
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    U[v][u] == False  # noqa: E712
+                )
         # Boundary Condition: f(v) = 0 if preds(v) is empty
         if not preds[v]:
-            opt.add(f[v] == False)  # noqa: E712
+            opt.add(  # pyright: ignore[reportUnknownMemberType]
+                f[v] == False  # noqa: E712
+            )
         # Boundary Condition: f(v) = 1 if succs(v) is empty
         if not succs[v]:
-            opt.add(f[v] == True)  # noqa: E712
+            opt.add(  # pyright: ignore[reportUnknownMemberType]
+                f[v] == True  # noqa: E712
+            )
 
     # Minimize the sum of materialized nodes (See Defn. (TODO) of the paper.)
-    obj = z3.Sum([z3.If(f[v], 1, 0) for v in V])
+    obj = (  # pyright: ignore[reportUnknownVariableType]
+        z3.Sum(  # pyright: ignore[reportUnknownMemberType]
+            [
+                z3.If(f[v], 1, 0)  # pyright: ignore[reportUnknownMemberType]
+                for v in V
+            ]
+        )
+    )
     print("Started solving...")
-    opt.minimize(obj)
+    opt.minimize(obj)  # pyright: ignore[reportUnknownMemberType]
 
-    if opt.check() == z3.sat:
+    if opt.check() == z3.sat:  # pyright: ignore[reportUnknownMemberType]
         m = opt.model()
         print("Optimal Materialization Strategy:")
         i = 0
@@ -207,16 +302,24 @@ def _pt_einsum_to_feinsum(expr: pt.Einsum) -> fnsm.BatchedEinsum:
         if arg not in arg_to_name:
             arg_to_name[arg] = vng("arg")
 
+    def _to_int_shape(shape: ShapeType) -> tuple[int, ...]:
+        for s in shape:
+            assert isinstance(s, (int, np.integer))
+        return cast("tuple[int, ...]", shape)
+
     return fnsm.einsum(
         get_einsum_subscript_str(expr),
-        *[fnsm.Array(arg_to_name[arg], arg.shape, arg.dtype) for arg in expr.args],
+        *[
+            fnsm.Array(arg_to_name[arg], _to_int_shape(arg.shape), arg.dtype)
+            for arg in expr.args
+        ],
     )
 
 
 def solve_dgfem_materialization_eq_using_z3(
     dfg: DataFlowGraph,
 ) -> tuple[frozenset[pt.Array], Mapping[pt.Array, Tag]]:
-    import z3
+    import z3  # pyright: ignore[reportMissingTypeStubs]
 
     V = frozenset(dfg.node_to_id.values())
     c = constantdict(
@@ -240,12 +343,21 @@ def solve_dgfem_materialization_eq_using_z3(
     succs = dfg.id_succs
     opt = z3.Optimize()
     # f[v]: Materialization decision variables (See Defn. (TODO) in paper)
-    f = constantdict({v: z3.Bool(f"f_{v}") for v in V})
+    f = constantdict(
+        {v: z3.Bool(f"f_{v}") for v in V}  # pyright: ignore[reportUnknownMemberType]
+    )
     # U_f_E[v][u]: True iff node u is in U_f^E(v) (See Defn. (TODO) in paper)
     # TODO: optimize this by considering only recursive preds of v.
     U_f_E = constantdict(
         {
-            v: constantdict({u: z3.Bool(f"U_{v}_{u}") for u in einsum_nodes})
+            v: constantdict(
+                {
+                    u: z3.Bool(  # pyright: ignore[reportUnknownMemberType]
+                        f"U_{v}_{u}"
+                    )
+                    for u in einsum_nodes
+                }
+            )
             for v in V
         }
     )
@@ -255,53 +367,103 @@ def solve_dgfem_materialization_eq_using_z3(
         for u in einsum_nodes:
             if not preds[v]:
                 # If no predecessors, U is empty
-                opt.add(U_f_E[v][u] == False)  # noqa: E712
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    U_f_E[v][u] == False  # noqa: E712
+                )
             else:
-                u_terms = []
+                u_terms: list[object] = []
                 for p in preds[v]:
                     if c[p] == 1:
                         u_terms.append(
-                            z3.And(z3.Not(f[p]), z3.Or(u == p, U_f_E[p][u]))
+                            z3.And(  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                                z3.Not(  # pyright: ignore[reportUnknownMemberType]
+                                    f[p]
+                                ),
+                                z3.Or(  # pyright: ignore[reportUnknownMemberType]
+                                    u == p, U_f_E[p][u]
+                                ),
+                            )
                         )
                     else:
-                        u_terms.append(z3.And(z3.Not(f[p]), U_f_E[p][u]))
+                        u_terms.append(
+                            z3.And(  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+                                z3.Not(  # pyright: ignore[reportUnknownMemberType]
+                                    f[p]
+                                ),
+                                U_f_E[p][u],
+                            )
+                        )
                 # u is in the set if it comes from ANY predecessor path
-                opt.add(U_f_E[v][u] == z3.Or(u_terms))
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    U_f_E[v][u]
+                    == z3.Or(u_terms)  # pyright: ignore[reportUnknownMemberType]
+                )
 
     # Apply Constraints (See Defn. TODO)
     for v in V:
         if c[v] == 2:
             # |U_f^E(v)| <= 1
-            opt.add(z3.Sum([z3.If(U_f_E[v][u], 1, 0) for u in einsum_nodes]) <= 1)
+            opt.add(  # pyright: ignore[reportUnknownMemberType]
+                z3.Sum(  # pyright: ignore[reportUnknownMemberType]
+                    [
+                        z3.If(  # pyright: ignore[reportUnknownMemberType]
+                            U_f_E[v][u], 1, 0
+                        )
+                        for u in einsum_nodes
+                    ]
+                )
+                <= 1
+            )
         else:
             assert c[v] == 0 or c[v] == 1
             for u in einsum_nodes:
-                opt.add(U_f_E[v][u] == False)  # noqa: E712
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    U_f_E[v][u] == False  # noqa: E712
+                )
         # Boundary Condition: f(v) = 0 if preds(v) is empty
         if not preds[v]:
-            opt.add(f[v] == False)  # noqa: E712
+            opt.add(  # pyright: ignore[reportUnknownMemberType]
+                f[v] == False  # noqa: E712
+            )
         # Boundary Condition: f(v) = 1 if succs(v) is empty
         if not succs[v]:
-            opt.add(f[v] == True)  # noqa: E712
+            opt.add(  # pyright: ignore[reportUnknownMemberType]
+                f[v] == True  # noqa: E712
+            )
 
     # Minimize the sum of materialized nodes (See Defn. (TODO) of the paper.)
-    obj = z3.Sum([z3.If(f[v], 1, 0) for v in V])
-    tie_break_0 = z3.Sum([z3.If(f[v], int(c[v] == 1), int(c[v] == 1)) for v in V])
-    tie_break_1 = z3.Sum(
+    obj = z3.Sum(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        [z3.If(f[v], 1, 0) for v in V]  # pyright: ignore[reportUnknownMemberType]
+    )
+    tie_break_0 = z3.Sum(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         [
-            z3.If(U_f_E[v][u], get_einsum_tiebreak_cost(dfg.node_to_id.inv[u]), 0)
+            z3.If(  # pyright: ignore[reportUnknownMemberType]
+                f[v], int(c[v] == 1), int(c[v] == 1)
+            )
+            for v in V
+        ]
+    )
+    tie_break_1 = z3.Sum(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        [
+            z3.If(  # pyright: ignore[reportUnknownMemberType]
+                U_f_E[v][u],
+                get_einsum_tiebreak_cost(cast("pt.Einsum", dfg.node_to_id.inv[u])),
+                0,
+            )
             for u in einsum_nodes
             for v in V
         ]
     )
-    opt.minimize(obj)
-    opt.minimize(tie_break_0)
-    opt.minimize(tie_break_1)
+    opt.minimize(obj)  # pyright: ignore[reportUnknownMemberType]
+    opt.minimize(tie_break_0)  # pyright: ignore[reportUnknownMemberType]
+    opt.minimize(tie_break_1)  # pyright: ignore[reportUnknownMemberType]
 
-    if opt.check() == z3.sat:
+    if opt.check() == z3.sat:  # pyright: ignore[reportUnknownMemberType]
         m = opt.model()
         if False:
-            print("Optimal Materialization Strategy:")
+            print(
+                "Optimal Materialization Strategy:"
+            )  # pyright: ignore[reportUnreachable]
             i = 0
             for v in sorted(V):
                 val = 1 if z3.is_true(m[f[v]]) else 0
@@ -361,12 +523,13 @@ def materialize_for_dgfem_opt(
         new_expr = expr
         if expr in materialized_arrays:
             new_expr = new_expr.tagged(pt.tags.ImplStored())
-        try:
-            tag = tags[expr]
-        except KeyError:
-            pass
-        else:
-            new_expr = new_expr.tagged(tag)
+        if isinstance(expr, pt.Array):
+            try:
+                tag = tags[expr]
+            except KeyError:
+                pass
+            else:
+                new_expr = new_expr.tagged(tag)
 
         return new_expr
 
