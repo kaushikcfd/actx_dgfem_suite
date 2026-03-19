@@ -1,6 +1,7 @@
+import numpy as np
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
-from pytato.array import NormalizedSlice
+from pytato.array import ArrayOrScalar, NormalizedSlice
 from pytools import memoize_on_first_arg
 
 
@@ -27,9 +28,11 @@ def _fold_constant_einsum_indirection_args(
 ) -> pt.transform.ArrayOrNames:
     if isinstance(expr, pt.Einsum):
         return expr.replace_if_different(
-            args=tuple(
-                (
-                    actx.thaw(actx.freeze(arg)).without_tags(pt.tags.ImplStored())
+            args=tuple(  # pyright: ignore[reportUnknownArgumentType]
+                (  # pyright: ignore[reportUnknownArgumentType]
+                    actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType]
+                        arg
+                    ).without_tags(pt.tags.ImplStored())
                     if _can_be_folded(arg, input_base_getter)
                     else arg
                 )
@@ -51,16 +54,21 @@ def _fold_constant_einsum_indirection_args(
             raise NotImplementedError
 
         assert not any(isinstance(idx, NormalizedSlice) for idx in expr.indices)
-        stride = 1
-        raveled_idx = 0
+        stride: ArrayOrScalar = 1
+        raveled_idx: ArrayOrScalar = 0
 
         for axis_len, idx in zip(
             expr.array.shape[::-1], expr.indices[::-1], strict=True
         ):
+            assert isinstance(
+                idx, (pt.Array, int, np.integer)
+            ), "not implemented for other cases."
             raveled_idx = raveled_idx + stride * idx
             stride *= axis_len
 
-        thawed_idx = actx.thaw(actx.freeze(raveled_idx))
+        thawed_idx = actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+            raveled_idx
+        )
         assert isinstance(thawed_idx, pt.DataWrapper)
 
         return memoized_ravel(actx, expr.array)[
