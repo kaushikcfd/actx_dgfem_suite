@@ -1,17 +1,28 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING, Any
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    TypeVar,
+    cast,
+    overload,
+)
 
+import loopy as lp
 import numpy as np
-import opt_einsum
+import opt_einsum  # pyright: ignore[reportMissingTypeStubs]
 import pyopencl as cl
 import pytato as pt
-from arraycontext import PytatoPyOpenCLArrayContext
 from constantdict import constantdict
+from pymbolic.typing import Integer
 from pytato.transform import CachedWalkMapper
+from typing_extensions import override
+
+from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 
 if TYPE_CHECKING:
     from pytato.array import ArrayOrScalar
@@ -19,26 +30,38 @@ if TYPE_CHECKING:
 
 # {{{ actx to get the kernel with loop fusion, contraction
 
-type FlopCounterResultT = Mapping[np.dtype[Any], OpCounts]
+
+IRT = TypeVar("IRT", lp.TranslationUnit, "pt.AbstractResultWithNamedArrays")
 
 
-class PytatoDAGGetterActxError(RuntimeError):
+class OptimizedDGFemIRInspectingActxError[
+    IRT: (lp.TranslationUnit, "pt.AbstractResultWithNamedArrays")
+](RuntimeError):
     """
-    Returned during a compilation of :class:`PytatoDAGGetterActx`.
+    Raised during a compilation of :class:`PytatoDAGGetterActx`.
     """
 
-    def __init__(self, dag: pt.AbstractResultWithNamedArrays) -> None:
-        self.dag = dag
+    def __init__(self, ir: IRT) -> None:
         super().__init__()
+        self.ir: IRT = ir
 
 
-class PytatoDagGetterActx(PytatoPyOpenCLArrayContext):
+class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
     """
     This is not a conventional arraycontext. During every execution, it simply
-    raises a :class:`PytatoDAGGetterActxError` with the untransformed input
-    array expression.
+    raises a :class:`OptimizedDGFemIRInspectingActxError` with the transformed
+    intermediate representation.
     """
 
+    def __init__(
+        self,
+        ir_to_inspect: Literal["pytato", "loopy"],
+        queue: cl.CommandQueue,
+    ) -> None:
+        super().__init__(queue=queue)
+        self.ir_to_inspect: Literal["pytato", "loopy"] = ir_to_inspect
+
+    @override
     def transform_dag(
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
@@ -52,8 +75,34 @@ class PytatoDagGetterActx(PytatoPyOpenCLArrayContext):
         :arg dag: An instance of :class:`pytato.DictOfNamedArrays`
         :returns: A transformed version of *dag*.
         """
-        raise PytatoDAGGetterActxError(dag)
+        dag = super().transform_dag(dag)
+        if self.ir_to_inspect == "pytato":
+            raise OptimizedDGFemIRInspectingActxError(dag)
         return dag
+
+    @override
+    def transform_loopy_program(
+        self, t_unit: lp.TranslationUnit
+    ) -> lp.TranslationUnit:
+        from actx_dgfem_suite.arraycontext.kennedy_loop_fusion import (
+            apply_kennedy_loop_fusion_for_einsum_tags,
+        )
+        from actx_dgfem_suite.arraycontext.metadata import (
+            IncomingEisumTag,
+        )
+
+        if not any(
+            tv.tags_of_type(IncomingEisumTag)
+            for tv in t_unit.default_entrypoint.temporary_variables.values()
+        ):
+            return self.comptime_actx.transform_loopy_program(t_unit)
+
+        t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
+        # FIXME: Add gbarriers.
+
+        if self.ir_to_inspect == "loopy":
+            raise OptimizedDGFemIRInspectingActxError(t_unit)
+        return t_unit
 
 
 # }}}
@@ -166,6 +215,9 @@ class OpCounts:
         )
 
 
+type FlopCounterResultT = Mapping[np.dtype[Any], OpCounts]
+
+
 class FlopCounter(CachedWalkMapper[[]]):
 
     def __init__(self) -> None:
@@ -173,8 +225,11 @@ class FlopCounter(CachedWalkMapper[[]]):
         super().__init__()
 
     def update_dtype_to_counts(self, dtype: np.dtype[Any], count: OpCounts) -> None:
-        self.dtype_to_counts[dtype] = self.dtype_to_counts.get(dtype, 0) + count
+        self.dtype_to_counts[dtype] = (
+            self.dtype_to_counts.get(dtype, OpCounts._zeroed_defaults()) + count
+        )
 
+    @override
     def map_index_lambda(self, expr: pt.IndexLambda) -> None:
         from pytato.raising import (
             BinaryOp,
@@ -190,8 +245,10 @@ class FlopCounter(CachedWalkMapper[[]]):
 
         hlo = index_lambda_to_high_level_op(expr)
         if isinstance(hlo, BinaryOp):
-            self.rec(hlo.x1)
-            self.rec(hlo.x2)
+            if isinstance(hlo.x1, pt.Array):
+                self.rec(hlo.x1)
+            if isinstance(hlo.x2, pt.Array):
+                self.rec(hlo.x2)
 
             if hlo.binary_op in [BinaryOpType.ADD, BinaryOpType.SUB]:
                 self.update_dtype_to_counts(expr.dtype, OpCounts.from_add(expr.size))
@@ -202,6 +259,7 @@ class FlopCounter(CachedWalkMapper[[]]):
             elif hlo.binary_op == BinaryOpType.TRUEDIV:
                 self.update_dtype_to_counts(expr.dtype, OpCounts.from_div(expr.size))
             elif hlo.binary_op == BinaryOpType.FLOORDIV:
+                assert isinstance(hlo.x1, pt.Array) and isinstance(hlo.x2, pt.Array)
                 self.update_dtype_to_counts(
                     np.result_type(hlo.x1.dtype, hlo.x2.dtype),
                     OpCounts.from_floor_div(expr.size),
@@ -229,15 +287,19 @@ class FlopCounter(CachedWalkMapper[[]]):
                 )
         elif isinstance(hlo, C99CallOp):
             for arg in hlo.args:
-                self.rec(arg)
+                if isinstance(arg, pt.Array):
+                    self.rec(arg)
 
             self.update_dtype_to_counts(
                 expr.dtype, OpCounts.from_func(hlo.function, expr.size)
             )
         elif isinstance(hlo, WhereOp):
-            self.rec(hlo.condition)
-            self.rec(hlo.then)
-            self.rec(hlo.else_)
+            if isinstance(hlo.condition, pt.Array):
+                self.rec(hlo.condition)
+            if isinstance(hlo.then, pt.Array):
+                self.rec(hlo.then)
+            if isinstance(hlo.else_, pt.Array):
+                self.rec(hlo.else_)
 
             self.update_dtype_to_counts(expr.dtype, OpCounts.from_where(expr.size))
         elif isinstance(hlo, BroadcastOp):
@@ -289,55 +351,83 @@ class FlopCounter(CachedWalkMapper[[]]):
         else:
             raise NotImplementedError()
 
+    @override
     def map_einsum(self, expr: pt.Einsum) -> None:
         for arg in expr.args:
             self.rec(arg)
 
         from pytato.utils import get_einsum_specification
 
-        _, path_info = opt_einsum(
+        _, path_info = opt_einsum.contract_path(
             get_einsum_specification(expr), *expr.args, optimize="optimal"
         )
+        flop_count = int(path_info.opt_cost)
+        self.update_dtype_to_counts(
+            expr.dtype,
+            OpCounts._zeroed_defaults(add=flop_count, mult=flop_count),
+        )
 
-        return int(path_info.opt_cost)
-
+    @override
     def map_roll(self, expr: pt.Roll) -> None:
         self.rec(expr.array)
 
+    @override
     def map_reshape(self, expr: pt.Reshape) -> None:
         self.rec(expr.array)
 
+    @override
     def map_axis_permutation(self, expr: pt.AxisPermutation) -> None:
         self.rec(expr.array)
 
+    @override
     def map_stack(self, expr: pt.Stack) -> None:
         for ary in expr.arrays:
             self.rec(ary)
 
+    @override
     def map_concatenate(self, expr: pt.Concatenate) -> None:
         for ary in expr.arrays:
             self.rec(ary)
 
+    @override
     def _map_index_base(self, expr: pt.IndexBase) -> None:
         self.rec(expr.array)
         for idx in expr.indices:
             if isinstance(idx, pt.Array):
                 self.rec(expr.array)
 
+    @override
     def map_loopy_call(self, expr: LoopyCall) -> None:
         # Use lp.get_op_map to solve this.
         raise NotImplementedError
 
-    map_basic_index = _map_index_base
-    map_contiguous_advanced_index = _map_index_base
-    map_non_contiguous_advanced_index = _map_index_base
+    @override
+    def map_basic_index(self, expr: pt.BasicIndex) -> None:
+        return self._map_index_base(expr)
 
-    def _map_input_base(self, expr: pt.InputArgumentBase) -> None:
+    @override
+    def map_contiguous_advanced_index(
+        self, expr: pt.AdvancedIndexInContiguousAxes
+    ) -> None:
+        return self._map_index_base(expr)
+
+    @override
+    def map_non_contiguous_advanced_index(
+        self, expr: pt.AdvancedIndexInNoncontiguousAxes
+    ) -> None:
+        return self._map_index_base(expr)
+
+    @override
+    def map_placeholder(self, expr: pt.Placeholder) -> None:
         pass
 
-    map_placeholder = _map_input_base
-    map_size_param = _map_input_base
-    map_data_wrapper = _map_input_base
+    @override
+    def map_size_param(self, expr: pt.SizeParam) -> None:
+        pass
+
+    @override
+    def map_data_wrapper(self, expr: pt.DataWrapper) -> None:
+        pass
 
 
 def count_flops_for_pytato_dag(
@@ -351,10 +441,20 @@ def count_flops_for_pytato_dag(
 # }}}
 
 
+@overload
+def _get_ir(
+    ir_type: Literal["loopy"], equation: str, dim: int, degree: int
+) -> lp.TranslationUnit: ...
+@overload
+def _get_ir(
+    ir_type: Literal["pytato"], equation: str, dim: int, degree: int
+) -> pt.AbstractResultWithNamedArrays: ...
+
+
 @cache
-def _get_pt_dag(
-    equation: str, dim: int, degree: int
-) -> pt.AbstractResultWithNamedArrays:
+def _get_ir(
+    ir_type: Literal["pytato", "loopy"], equation: str, dim: int, degree: int
+) -> lp.TranslationUnit | pt.AbstractResultWithNamedArrays:
     from meshmode.dof_array import array_context_for_pickling
 
     from actx_dgfem_suite.utils import (
@@ -367,8 +467,8 @@ def _get_pt_dag(
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)
 
-    actx = PytatoDagGetterActx(cq)
-    rhs_clbl = rhs_invoker(actx)
+    actx = OptimizedDGFemIRInspectingActx(ir_type, cq)
+    rhs_clbl: Callable[..., None] = rhs_invoker(actx)  # pyright: ignore[reportAny]
 
     with open(
         get_benchmark_ref_input_arguments_path(equation, dim, degree), "rb"
@@ -376,7 +476,10 @@ def _get_pt_dag(
         import pickle
 
         with array_context_for_pickling(actx):
-            np_args, np_kwargs = pickle.load(fp)
+            loaded = cast(
+                "tuple[tuple[object, ...], dict[str, object]]", pickle.load(fp)
+            )
+            np_args, np_kwargs = loaded
 
     if all(
         (
@@ -384,7 +487,10 @@ def _get_pt_dag(
             or (
                 isinstance(arg, np.ndarray)
                 and arg.dtype == "O"
-                and all(is_dataclass_array_container(el) for el in arg)
+                and all(
+                    is_dataclass_array_container(el)  # pyright: ignore[reportAny]
+                    for el in arg  # pyright: ignore[reportAny]
+                )
             )
             or np.isscalar(arg)
         )
@@ -400,24 +506,39 @@ def _get_pt_dag(
         raise NotImplementedError("Pickling not implemented for input" " types.")
     else:
         args, kwargs = (
-            tuple(actx.from_numpy(arg) for arg in np_args),
-            {kw: actx.from_numpy(arg) for kw, arg in np_kwargs.items()},
+            tuple(
+                actx.from_numpy(arg)  # pyright: ignore[reportUnknownMemberType]
+                for arg in np_args
+            ),
+            {
+                kw: actx.from_numpy(arg)  # pyright: ignore[reportUnknownMemberType]
+                for kw, arg in np_kwargs.items()
+            },
         )
 
     try:
         rhs_clbl(*args, **kwargs)
-    except PytatoDagGetterActx as e:
-        return e.transform_dag
+    except (
+        OptimizedDGFemIRInspectingActxError
+    ) as e:  # pyright: ignore[reportUnknownVariableType]
+        ir = cast("lp.TranslationUnit | pt.AbstractResultWithNamedArrays", e.ir)
+        if ir_type == "pytato":
+            assert isinstance(ir, pt.AbstractResultWithNamedArrays)
+        else:
+            assert ir_type == "loopy"
+            assert isinstance(ir, lp.TranslationUnit)
+        return ir
     else:
-        raise RuntimeError("Was expecting a 'MinimalBytesKernelError'")
+        raise RuntimeError("Was expecting a 'OptimizedDGFemIRInspectingActxError'")
 
 
 @cache
 def get_float64_flops(equation: str, dim: int, degree: int) -> int:
-    expr = _get_pt_dag(equation, str, dim, degree)
+    expr = _get_ir("pytato", equation, dim, degree)
+    assert isinstance(expr, pt.AbstractResultWithNamedArrays)
     dtype_to_counts = count_flops_for_pytato_dag(expr)
 
-    float64_flops = 0
+    float64_flops: ArrayOrScalar = 0
     f64 = np.dtype(np.float64)
     c128 = np.dtype(np.complex128)
 
@@ -430,7 +551,7 @@ def get_float64_flops(equation: str, dim: int, degree: int) -> int:
     float64_flops += fp64_count.bitwise
     float64_flops += fp64_count.logical
     float64_flops += fp64_count.where
-    for func_name, count in fp64_count.items():
+    for func_name, count in fp64_count.function_calls.items():
         if func_name in ["max", "min", "isnan"]:
             float64_flops += count
         else:
@@ -444,7 +565,7 @@ def get_float64_flops(equation: str, dim: int, degree: int) -> int:
     float64_flops += 2 * c128_count.bitwise
     float64_flops += 2 * c128_count.logical
     float64_flops += 2 * c128_count.where
-    for func_name, count in c128.items():
+    for func_name, count in c128_count.function_calls.items():
         if func_name == "isnan":
             float64_flops += 2 * count
         elif func_name == "abs":
@@ -452,28 +573,50 @@ def get_float64_flops(equation: str, dim: int, degree: int) -> int:
         else:
             raise NotImplementedError(f"Flops for func name: {func_name}.")
 
+    assert isinstance(float64_flops, int)
     return float64_flops
 
 
 @cache
 def get_footprint_bytes(equation: str, dim: int, degree: int) -> int:
-    from pytato.transform import InputGatherer
+    from loopy.schedule import CallKernel
+    from loopy.schedule.tools import get_subkernel_arg_info
+    from pytools import product
 
-    expr = _get_pt_dag(equation, str, dim, degree)
-    # TODO: Transform the graph over here to reorder the index expressions
-    # and only materialize einsums.
-
-    inputs = InputGatherer()(expr)
-    # FIXME: populate this.
-    materialized_arrays = frozenset()
-
-    footprint_bytes = (
-        sum(ary.size * ary.dtype.itemsize for ary in inputs)
-        + sum(ary.size * ary.dtype.itemsize for ary in expr.values())
-        + 2 * sum(ary.size * ary.dtype.itemsize for ary in materialized_arrays)
+    t_unit = _get_ir("loopy", equation, dim, degree)
+    assert isinstance(t_unit, lp.TranslationUnit)
+    t_unit = lp.linearize(lp.preprocess_program(t_unit))
+    knl = t_unit.default_entrypoint
+    assert knl.linearization is not None
+    subkernel_names = tuple(
+        sched_item.kernel_name
+        for sched_item in knl.linearization
+        if isinstance(sched_item, CallKernel)
     )
+    footprint_bytes: Integer = 0
+    for subknl_name in subkernel_names:
+        subknl_arg_info = get_subkernel_arg_info(knl, subknl_name)
+        for tv_name in subknl_arg_info.passed_temporaries:
+            tv = knl.temporary_variables[tv_name]
+            assert isinstance(
+                tv.nbytes, Integer
+            ), "Only int shape supported for now."
+            footprint_bytes += tv.nbytes
+        for arg_name in subknl_arg_info.passed_arg_names:
+            arg = knl.arg_dict[arg_name]
+            if isinstance(arg, lp.ArrayArg):
+                assert arg.shape is not None
+                assert arg.dtype is not None
+                arg_nbytes = (
+                    cast("int", product(cast("tuple[Any, ...]", arg.shape)))
+                    * arg.dtype.itemsize
+                )
+            else:
+                assert arg.dtype is not None
+                arg_nbytes = arg.dtype.itemsize
+            footprint_bytes += cast("Integer", arg_nbytes)
 
-    return footprint_bytes
+    return cast("int", footprint_bytes)
 
 
 @cache
