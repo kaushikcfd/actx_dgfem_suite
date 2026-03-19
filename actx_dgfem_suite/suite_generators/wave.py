@@ -27,16 +27,28 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
+from typing import Callable, ClassVar, cast
 
 import grudge.geometry as geom
-import grudge.op as op
 import numpy as np
-from arraycontext import dataclass_array_container, with_container_arithmetic
+from arraycontext import (
+    Array,
+    ArrayContext,
+    dataclass_array_container,
+    with_container_arithmetic,
+)
+from grudge import op
 from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc, as_dofdesc
+from grudge.dof_desc import (
+    DISCR_TAG_BASE,
+    DISCR_TAG_QUAD,
+    DiscretizationTag,
+    DOFDesc,
+    as_dofdesc,
+)
 from grudge.trace_pair import TracePair
 from meshmode.dof_array import DOFArray
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import flat, new_1d
 
 logger = logging.getLogger(__name__)
@@ -47,7 +59,8 @@ logging.basicConfig(level=logging.INFO)
 
 
 @with_container_arithmetic(
-    bcast_obj_array=True, rel_comparison=True, _cls_has_array_context_attr=True
+    bcasts_across_obj_array=True,
+    rel_comparison=True,
 )
 @dataclass_array_container
 @dataclass(frozen=True)
@@ -55,46 +68,76 @@ class WaveState:
     u: DOFArray
     v: np.ndarray  # [object array]
 
+    # NOTE: disable numpy doing any array math
+    __array_ufunc__: ClassVar[None] = None
+
     def __post_init__(self):
         assert isinstance(self.v, np.ndarray) and self.v.dtype.char == "O"
 
-    @property
-    def array_context(self):
-        return self.u.array_context
 
-
-def wave_flux(actx, dcoll, c, w_tpair):
+def wave_flux(
+    actx: ArrayContext,
+    dcoll: DiscretizationCollection,
+    c: float,
+    w_tpair: TracePair[WaveState],  # pyright: ignore[reportInvalidTypeArguments]
+) -> WaveState:
     u = w_tpair.u
     v = w_tpair.v
     dd = w_tpair.dd
 
     normal = geom.normal(actx, dcoll, dd)
-    flux_weak = WaveState(u=v.avg @ normal, v=u.avg * normal)
-
-    # upwind
-    v_jump = v.diff @ normal
-    flux_weak += WaveState(
-        u=0.5 * u.diff,
-        v=0.5 * v_jump * normal,
+    flux_weak = WaveState(
+        u=v.avg @ normal,  # pyright: ignore[reportOperatorIssue, reportArgumentType]
+        v=u.avg * normal,  # pyright: ignore[reportOperatorIssue, reportArgumentType]
     )
 
-    return op.project(dcoll, dd, dd.with_domain_tag("all_faces"), c * flux_weak)
+    # upwind
+    v_jump = (  # pyright: ignore[reportUnknownVariableType, reportOperatorIssue]
+        v.diff @ normal
+    )
+    flux_weak += (  # pyright: ignore[reportUnknownVariableType, reportOperatorIssue]
+        WaveState(
+            u=0.5 * u.diff,  # pyright: ignore[reportArgumentType]
+            v=0.5
+            * v_jump
+            * normal,  # pyright: ignore[reportOperatorIssue, reportArgumentType]
+        )
+    )
+
+    return op.project(  # pyright: ignore[reportUnknownVariableType]
+        dcoll,
+        dd,
+        dd.with_domain_tag("all_faces"),  # pyright: ignore[reportArgumentType]
+        c * flux_weak,  # pyright: ignore[reportUnknownArgumentType]
+    )
 
 
 class _WaveStateTag:
     pass
 
 
-def wave_operator(actx, dcoll, c, w, quad_tag=None):
+def wave_operator(
+    actx: ArrayContext,
+    dcoll: DiscretizationCollection,
+    c: float,
+    w: WaveState,
+    quad_tag: DiscretizationTag | None = None,
+) -> WaveState:
     dd_base = as_dofdesc("vol")
     dd_vol = DOFDesc("vol", quad_tag)
     dd_faces = DOFDesc("all_faces", quad_tag)
-    dd_btag = as_dofdesc(BTAG_ALL).with_discr_tag(quad_tag)
+    dd_btag = as_dofdesc(BTAG_ALL).with_discr_tag(
+        quad_tag  # pyright: ignore[reportArgumentType]
+    )
 
-    def interp_to_surf_quad(utpair):
+    def interp_to_surf_quad(
+        utpair: TracePair[WaveState],  # pyright: ignore[reportInvalidTypeArguments]
+    ) -> TracePair[WaveState]:  # pyright: ignore[reportInvalidTypeArguments]
         local_dd = utpair.dd
-        local_dd_quad = local_dd.with_discr_tag(quad_tag)
-        return TracePair(
+        local_dd_quad = local_dd.with_discr_tag(
+            quad_tag  # pyright: ignore[reportArgumentType]
+        )
+        return TracePair(  # pyright: ignore[reportUnknownVariableType]
             local_dd_quad,
             interior=op.project(dcoll, local_dd, local_dd_quad, utpair.int),
             exterior=op.project(dcoll, local_dd, local_dd_quad, utpair.ext),
@@ -110,27 +153,45 @@ def wave_operator(actx, dcoll, c, w, quad_tag=None):
     dir_bval = WaveState(u=dir_u, v=dir_v)
     dir_bc = WaveState(u=-dir_u, v=dir_v)
 
-    return op.inverse_mass(
+    return op.inverse_mass(  # pyright: ignore[reportReturnType]
         dcoll,
-        WaveState(
-            u=-c * op.weak_local_div(dcoll, dd_vol, v),
-            v=-c * op.weak_local_grad(dcoll, dd_vol, u),
+        WaveState(  # pyright: ignore[reportUnknownArgumentType, reportOperatorIssue]
+            u=-c  # pyright: ignore[reportOperatorIssue, reportArgumentType]
+            * op.weak_local_div(
+                dcoll, dd_vol, v  # pyright: ignore[reportArgumentType]
+            ),
+            v=-c
+            * op.weak_local_grad(
+                dcoll, dd_vol, u
+            ),  # pyright: ignore[reportOperatorIssue, reportArgumentType]
         )
         + op.face_mass(
             dcoll,
             dd_faces,
-            wave_flux(
+            wave_flux(  # pyright: ignore[reportUnknownArgumentType]
                 actx,
                 dcoll,
                 c=c,
-                w_tpair=op.bdry_trace_pair(
-                    dcoll, dd_btag, interior=dir_bval, exterior=dir_bc
+                w_tpair=op.bdry_trace_pair(  # pyright: ignore[reportUnknownArgumentType]
+                    dcoll,
+                    dd_btag,
+                    interior=dir_bval,  # pyright: ignore[reportArgumentType]
+                    exterior=dir_bc,  # pyright: ignore[reportArgumentType]
                 ),
             )
-            + sum(
-                wave_flux(actx, dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
-                for tpair in op.interior_trace_pairs(
-                    dcoll, w, comm_tag=_WaveStateTag
+            + sum(  # pyright: ignore[reportCallIssue]
+                wave_flux(
+                    actx,
+                    dcoll,
+                    c=c,
+                    w_tpair=interp_to_surf_quad(
+                        tpair  # pyright: ignore[reportUnknownArgumentType, reportArgumentType]
+                    ),
+                )
+                for tpair in op.interior_trace_pairs(  # pyright: ignore[reportUnknownVariableType]
+                    dcoll,
+                    w,  # pyright: ignore[reportArgumentType]
+                    comm_tag=_WaveStateTag,
                 )
             ),
         ),
@@ -140,7 +201,9 @@ def wave_operator(actx, dcoll, c, w, quad_tag=None):
 # }}}
 
 
-def estimate_rk4_timestep(actx, dcoll, c):
+def estimate_rk4_timestep(
+    actx: ArrayContext, dcoll: DiscretizationCollection, c: float
+) -> Array:
     from grudge.dt_utils import characteristic_lengthscales
 
     local_dts = characteristic_lengthscales(actx, dcoll) / c
@@ -148,7 +211,9 @@ def estimate_rk4_timestep(actx, dcoll, c):
     return op.nodal_min(dcoll, "vol", local_dts)
 
 
-def bump(actx, dcoll, t=0):
+def bump(
+    actx: ArrayContext, dcoll: DiscretizationCollection, t: float = 0
+) -> DOFArray:
     source_center = np.array([0.2, 0.35, 0.1])[: dcoll.dim]
     source_width = 0.05
     source_omega = 3
@@ -156,8 +221,16 @@ def bump(actx, dcoll, t=0):
     nodes = actx.thaw(dcoll.nodes())
     center_dist = flat([nodes[i] - source_center[i] for i in range(dcoll.dim)])
 
-    return np.cos(source_omega * t) * actx.np.exp(
-        -np.dot(center_dist, center_dist) / source_width**2
+    return cast(
+        "DOFArray",
+        np.cos(source_omega * t)
+        * actx.np.exp(
+            -np.dot(  # pyright: ignore[reportAny]
+                center_dist,  # pyright: ignore[reportArgumentType]
+                center_dist,  # pyright: ignore[reportArgumentType]
+            )
+            / source_width**2
+        ),
     )
 
 
@@ -165,27 +238,23 @@ GLOBAL_NDOFS = 3e6
 
 
 def _get_nel_1d(dim: int, order: int) -> int:
-    from math import ceil
+    from math import cbrt, ceil
+
+    nel_1d: int
 
     if dim == 3:
         if order == 1:
-            nel_1d = ceil(((GLOBAL_NDOFS / 4) / 6) ** (1 / 3))
+            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 4) / 6))
         elif order == 2:
-            nel_1d = ceil(((GLOBAL_NDOFS / 10) / 6) ** (1 / 3))
+            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 10) / 6))
         elif order == 3:
-            nel_1d = ceil(((GLOBAL_NDOFS / 20) / 6) ** (1 / 3))
+            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 20) / 6))
         elif order == 4:
-            nel_1d = ceil(((GLOBAL_NDOFS / 35) / 6) ** (1 / 3))
+            nel_1d = ceil(cbrt((GLOBAL_NDOFS / 35) / 6))
         else:
             raise NotImplementedError(order)
     elif dim == 2:
-        if order == 1:
-            nel_1d = 1000
-        elif order == 2:
-            nel_1d = 1000
-        elif order == 3:
-            nel_1d = 1000
-        elif order == 4:
+        if order in {1, 2, 3, 4}:
             nel_1d = 1000
         else:
             raise NotImplementedError(order)
@@ -195,24 +264,15 @@ def _get_nel_1d(dim: int, order: int) -> int:
     return nel_1d
 
 
-def main(dim, order, actx, *, use_nonaffine_mesh=False):
+def main(dim: int, order: int, actx: ArrayContext) -> None:
 
     nel_1d = _get_nel_1d(dim, order)
 
-    if use_nonaffine_mesh:
-        from meshmode.mesh.generation import generate_warped_rect_mesh
+    from meshmode.mesh.generation import generate_regular_rect_mesh
 
-        # FIXME: *generate_warped_rect_mesh* in meshmode warps a
-        # rectangle domain with hard-coded vertices at (-0.5,)*dim
-        # and (0.5,)*dim. Should extend the function interface to allow
-        # for specifying the end points directly.
-        mesh = generate_warped_rect_mesh(dim=dim, order=order, nelements_side=nel_1d)
-    else:
-        from meshmode.mesh.generation import generate_regular_rect_mesh
-
-        mesh = generate_regular_rect_mesh(
-            a=(-0.5,) * dim, b=(0.5,) * dim, nelements_per_axis=(nel_1d,) * dim
-        )
+    mesh = generate_regular_rect_mesh(
+        a=(-0.5,) * dim, b=(0.5,) * dim, nelements_per_axis=(nel_1d,) * dim
+    )
 
     logger.info("%d elements", mesh.nelements)
 
@@ -232,10 +292,11 @@ def main(dim, order, actx, *, use_nonaffine_mesh=False):
         },
     )
 
-    quad_tag = None
     fields = WaveState(
         u=bump(actx, dcoll),
-        v=new_1d([dcoll.zeros(actx) for i in range(dcoll.dim)]),
+        v=new_1d(
+            [dcoll.zeros(actx) for _ in range(dcoll.dim)]
+        ),  # pyright: ignore[reportArgumentType]
     )
 
     c = 1
@@ -244,16 +305,18 @@ def main(dim, order, actx, *, use_nonaffine_mesh=False):
     # 5/4 to account for larger LSRK45 stability region
     dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c)) * 5 / 4
 
-    def rhs(t, w):
-        return wave_operator(actx, dcoll, c=c, w=w, quad_tag=quad_tag)
+    def rhs(w: WaveState) -> WaveState:
+        return wave_operator(actx, dcoll, c=c, w=w, quad_tag=None)
 
-    compiled_rhs = actx.compile(rhs)
+    compiled_rhs = cast(
+        "Callable[[WaveState], WaveState]",
+        actx.compile(rhs),  # pyright: ignore[reportArgumentType]
+    )
 
     logger.info("dt = %g", dt)
 
-    t = np.float64(0.5)
     fields = actx.thaw(actx.freeze(fields))
-    compiled_rhs(t, fields)
+    compiled_rhs(fields)
 
 
 # vim: foldmethod=marker
