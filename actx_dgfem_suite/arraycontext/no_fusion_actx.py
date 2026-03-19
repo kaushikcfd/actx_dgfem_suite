@@ -1,12 +1,14 @@
 import dataclasses as dc
 import itertools
 from collections.abc import Mapping
+from typing import cast
 
 import loopy as lp
 import loopy.match as lp_match
 import pyopencl as cl
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
+from typing_extensions import override
 
 # {{{ _LoopNest class definition
 
@@ -76,7 +78,9 @@ def get_iname_length(kernel: lp.LoopKernel, iname: str) -> float | int:
         return max_domain_size.to_python()
 
 
-def _get_iname_pos_from_loop_nest(kernel, loop_nest: _LoopNest) -> Mapping[str, int]:
+def _get_iname_pos_from_loop_nest(
+    kernel: lp.LoopKernel, loop_nest: _LoopNest
+) -> Mapping[str, int]:
     import pymbolic.primitives as prim
 
     iname_orders: set[tuple[str, ...]] = set()
@@ -86,7 +90,10 @@ def _get_iname_pos_from_loop_nest(kernel, loop_nest: _LoopNest) -> Mapping[str, 
         if isinstance(insn, lp.Assignment):
             if isinstance(insn.assignee, prim.Subscript):
                 iname_orders.add(
-                    tuple(idx.name for idx in insn.assignee.index_tuple)
+                    tuple(
+                        cast("prim.Variable", idx).name
+                        for idx in insn.assignee.index_tuple
+                    )
                 )
         elif isinstance(insn, lp.CallInstruction):
             # must be a callable kernel, don't touch.
@@ -193,7 +200,8 @@ def split_iteration_domain_across_work_items(
 class InsnIds(lp_match.MatchExpressionBase):
     insn_ids_to_match: frozenset[str]
 
-    def __call__(self, kernel: lp.LoopKernel, matchable: lp.InstructionBase):
+    @override
+    def __call__(self, kernel: lp.LoopKernel, matchable: lp_match.Matchable) -> bool:
         return matchable.id in self.insn_ids_to_match
 
 
@@ -264,6 +272,7 @@ def add_gbarrier_between_disjoint_loop_nests(
 
 
 class NoFusionPytatoPyOpenCLActx(PytatoPyOpenCLArrayContext):
+    @override
     def transform_dag(
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
@@ -276,9 +285,12 @@ class NoFusionPytatoPyOpenCLActx(PytatoPyOpenCLArrayContext):
                 expr.tagged(pt.tags.ImplStored())
                 if isinstance(expr, pt.Array)
                 else expr
-            )
+            ),
         )
 
-    def transform_loopy_program(self, t_unit):
+    @override
+    def transform_loopy_program(
+        self, t_unit: lp.TranslationUnit
+    ) -> lp.TranslationUnit:
         t_unit = split_iteration_domain_across_work_items(t_unit, self.queue.device)
         return add_gbarrier_between_disjoint_loop_nests(t_unit)
