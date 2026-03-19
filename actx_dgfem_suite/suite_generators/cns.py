@@ -28,6 +28,8 @@ import math
 import time
 from functools import partial
 
+from arraycontext import ArrayContext
+
 import cantera
 import numpy as np
 from grudge.dof_desc import BoundaryDomainTag
@@ -136,7 +138,7 @@ class InitSponge:
 
 
 @mpi_entry_point
-def main(dim, order, actx, *, single_gas_only):
+def main(dim: int, order: int, actx: ArrayContext, *, single_gas_only: bool) -> None:
     """Drive example."""
 
     casename = "mirgecom.comboozle"
