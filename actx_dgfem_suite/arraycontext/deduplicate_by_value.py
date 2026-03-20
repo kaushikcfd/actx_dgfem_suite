@@ -14,7 +14,7 @@ class ValueDeduper(pt.transform.CopyMapper):
     actx: ArrayContext
 
     def __init__(self, actx: ArrayContext) -> None:
-        super().__init__()
+        super().__init__(err_on_collision=False)
         self.value_cache: dict[
             tuple[ShapeType, np.dtype[Any], str], list[pt.DataWrapper]
         ] = {}
@@ -46,4 +46,4 @@ def dedup_datawrappers_having_same_value(
     dag: pt.transform.ArrayOrNamesTc, comptime_actx: ArrayContext
 ) -> pt.transform.ArrayOrNamesTc:
     mapper = ValueDeduper(comptime_actx)
-    return mapper(dag)
+    return pt.transform.deduplicate(mapper(dag))

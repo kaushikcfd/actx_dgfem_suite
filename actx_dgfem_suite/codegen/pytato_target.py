@@ -41,6 +41,8 @@ from typing import (
 import islpy as isl
 import loopy as lp
 import numpy as np
+import pymbolic.mapper
+import pymbolic.typing
 from arraycontext import ArrayContext
 from constantdict import constantdict
 from loopy.types import LoopyType
@@ -68,7 +70,7 @@ from pytato.array import (
     Stack,
 )
 from pytato.raising import C99CallOp
-from pytato.scalar_expr import SCALAR_CLASSES
+from pytato.scalar_expr import SCALAR_CLASSES, ScalarExpression, TypeCast
 from pytato.target.python.numpy_like import (
     COMPARISON_OP_TO_CALL,
     LOGICAL_OP_TO_CALL,
@@ -89,6 +91,21 @@ from pytato.utils import (
 from pytools import UniqueNameGenerator
 from pytools.tag import Tag
 from typing_extensions import override
+
+
+class PytatoToLoopyExprMapper(pymbolic.mapper.CachedIdentityMapper[[]]):
+    def map_type_cast(
+        self,
+        expr: TypeCast,
+    ) -> pymbolic.typing.Expression:
+        return lp.TypeCast(lp.to_loopy_type(expr.dtype), self.rec(expr.inner_expr))
+
+
+def pt_scalar_expr_to_loopy_expr(
+    expr: ScalarExpression,
+) -> pymbolic.typing.Expression:
+    mapper = PytatoToLoopyExprMapper()
+    return mapper(expr)
 
 
 def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
@@ -118,7 +135,7 @@ def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
         instructions=[
             lp.Assignment(
                 out_var,
-                expr.expr,
+                pt_scalar_expr_to_loopy_expr(expr.expr),
                 within_inames=frozenset({f"_{i}" for i in range(expr.ndim)}),
             )
         ],
