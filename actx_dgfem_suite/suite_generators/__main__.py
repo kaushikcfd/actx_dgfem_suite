@@ -7,22 +7,13 @@ import argparse
 import dataclasses as dc
 from collections.abc import Sequence
 
-import pyopencl as cl
-import pyopencl.tools as cl_tools
-
 from actx_dgfem_suite import utils
 from actx_dgfem_suite.codegen import SuiteGeneratingArraycontext
 
 
 def get_actx(equation: str, dim: int, degree: int) -> SuiteGeneratingArraycontext:
 
-    cl_ctx = cl.create_some_context()
-    cq = cl.CommandQueue(cl_ctx)
-    allocator = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(cq))
-
     return SuiteGeneratingArraycontext(
-        cq,
-        allocator,
         main_file_path=utils.get_benchmark_main_file_path(equation, dim, degree),
         datawrappers_path=utils.get_benchmark_literals_path(equation, dim, degree),
         pickled_ref_input_args_path=utils.get_benchmark_ref_input_arguments_path(
