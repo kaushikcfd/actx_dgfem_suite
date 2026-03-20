@@ -116,8 +116,9 @@ if __name__ == "__main__":
         type=str,
         help=(
             "comma separated strings representing which"
-            " equations to time (for ex. 'wave,euler,"
-            "cns_with_chem,cns_without_chem')"
+            " equations to time. Available options:"
+            "wave, euler, maxwell, tiny_wave, tiny_euler, tiny_maxwell,"
+            " cns_with_chem and cns_without_chem.)"
         ),
         required=True,
     )

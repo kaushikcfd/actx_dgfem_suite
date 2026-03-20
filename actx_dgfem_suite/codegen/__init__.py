@@ -522,9 +522,9 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
     """
     Overrides the :meth:`compile` method of
-    :class:`arraycontext.PytatoJAXArrayContext` to generate python code that is
-    compatible to run with any :class:`ArrayContext` and then executes the
-    generated code.
+    :class:`arraycontext.PytatoPyOpenCLArrayContext` to generate python code
+    that is compatible to run with any :class:`ArrayContext` and then executes
+    the generated code.
     """
 
     main_file_path: str
