@@ -18,7 +18,7 @@ import autoflake  # pyright: ignore[reportMissingTypeStubs]
 import black
 import numpy as np
 import pytato as pt
-from arraycontext import is_array_container_type
+from arraycontext import PytatoJAXArrayContext, is_array_container_type
 from arraycontext.container.traversal import (
     rec_keyed_map_array_container,
     rec_map_array_container,
@@ -32,7 +32,6 @@ from meshmode.dof_array import array_context_for_pickling
 from pytools import memoize_method
 from typing_extensions import override
 
-from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 from actx_dgfem_suite.utils import (
     get_actx_dgfem_suite_path,
     is_dataclass_array_container,
@@ -41,8 +40,6 @@ from actx_dgfem_suite.utils import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    import pyopencl as cl
-    import pyopencl.array as cl_array
     from arraycontext.container import SerializationKey
     from arraycontext.typing import ArrayOrContainerOrScalar, ArrayOrScalar
 
@@ -123,19 +120,9 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         )
         from arraycontext.impl.pytato.utils import _ary_container_key_stringifier
 
-        args, kwargs = (  # pyright: ignore[reportUnknownVariableType]
-            tuple(
-                self.actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
-                    arg
-                )
-                for arg in args
-            ),
-            {
-                kw: self.actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType]
-                    arg
-                )
-                for kw, arg in kwargs.items()
-            },
+        args, kwargs = (
+            tuple(self.actx.freeze_thaw(arg) for arg in args),
+            {kw: self.actx.freeze_thaw(arg) for kw, arg in kwargs.items()},
         )
 
         # {{{ remove bad tags
@@ -232,12 +219,17 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 
         rec_keyed_map_array_container(_as_dict_of_named_arrays, output_template)
 
+        from actx_dgfem_suite.arraycontext.deduplicate_by_value import (
+            dedup_datawrappers_having_same_value,
+        )
+
         from .pytato_target import generate_arraycontext_code
 
-        pt_dict_of_named_arrays = pt.transform.deduplicate_data_wrappers(
+        pt_dict_of_named_arrays = dedup_datawrappers_having_same_value(
             pt.make_dict_of_named_arrays(
                 dict_of_named_arrays  # pyright: ignore[reportUnknownArgumentType]
-            )
+            ),
+            self.actx,
         )
         pt_dict_of_named_arrays = pt.rewrite_einsums_with_no_broadcasts(
             pt_dict_of_named_arrays
@@ -460,7 +452,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
 
         ref_out = cast(
             "ArrayOrContainerOrScalar",
-            self.actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType]
+            self.actx.freeze_thaw(
                 self.f(*args, **kwargs)  # pyright: ignore[reportAny]
             ),
         )
@@ -507,7 +499,12 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         )
 
         rec_multimap_array_container(
-            np.testing.assert_allclose,
+            lambda x, y: np.testing.assert_allclose(  # pyright: ignore[reportUnknownLambdaType,reportUnknownArgumentType]
+                x,  # pyright: ignore[reportUnknownArgumentType]
+                y,  # pyright: ignore[reportUnknownArgumentType]
+                rtol=1e-7,
+                atol=1e-7,
+            ),
             self_actx_clone.to_numpy(  # pyright: ignore[reportUnknownMemberType]
                 output  # pyright: ignore[reportAny]
             ),
@@ -519,12 +516,12 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         return output  # pyright: ignore[reportAny]
 
 
-class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
+class SuiteGeneratingArraycontext(PytatoJAXArrayContext):
     """
     Overrides the :meth:`compile` method of
-    :class:`arraycontext.PytatoPyOpenCLArrayContext` to generate python code
-    that is compatible to run with any :class:`ArrayContext` and then executes
-    the generated code.
+    :class:`arraycontext.PytatoJAXArrayContext` to generate python code that is
+    compatible to run with any :class:`ArrayContext` and then executes the
+    generated code.
     """
 
     main_file_path: str
@@ -534,8 +531,6 @@ class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
 
     def __init__(
         self,
-        queue: cl.CommandQueue,
-        allocator: cl_array.Allocator | None = None,
         *,
         main_file_path: str,
         datawrappers_path: str,
@@ -543,7 +538,7 @@ class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
         pickled_ref_output_path: str,
     ) -> None:
 
-        super().__init__(queue, allocator)
+        super().__init__()
 
         if any(
             not os.path.isabs(filepath)
@@ -571,7 +566,7 @@ class SuiteGeneratingArraycontext(DGFEMOptimizerArrayContext):
 
     @memoize_method
     def clone(self):
-        return DGFEMOptimizerArrayContext(self.queue, self.allocator)
+        return PytatoJAXArrayContext()
 
 
 # vim: fdm=marker
