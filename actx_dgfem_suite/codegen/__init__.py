@@ -249,7 +249,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             ast.Module(list(inner_code_prg.import_statements), type_ignores=[])))}
         from pytools import memoize_method
         from functools import cached_property
-        from immutabledict import immutabledict
+        from constantdict import constantdict
         from arraycontext import ArrayContext, is_array_container_type
         from dataclasses import dataclass
         from arraycontext.container.traversal import (rec_map_array_container,
@@ -274,7 +274,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
                                  "{os.path.relpath(self.actx.datawrappers_path,
                                                    start=get_actx_dgfem_suite_path())}")
                 )
-                return immutabledict({{kw: self.actx.freeze(self.actx.from_numpy(ary))
+                return constantdict({{kw: self.actx.freeze(self.actx.from_numpy(ary))
                                       for kw, ary in kw_to_ary.items()}})
 
             @memoize_method
@@ -319,7 +319,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
                 rec_keyed_map_array_container(_as_dict_of_named_arrays,
                                               output_template)
 
-                return immutabledict({{output_key: i
+                return constantdict({{output_key: i
                                       for i, output_key in enumerate(sorted(
                                         output_keys, key=_ary_container_key_stringifier))}})
 
