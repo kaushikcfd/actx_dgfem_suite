@@ -272,10 +272,6 @@ def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
 
     c = 1
 
-    # FIXME: Sketchy, empirically determined fudge factor
-    # 5/4 to account for larger LSRK45 stability region
-    dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c)) * 5 / 4
-
     def rhs(w: WaveState) -> WaveState:
         return wave_operator(actx, dcoll, c=c, w=w, quad_tag=None)
 
@@ -283,8 +279,6 @@ def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
         "Callable[[WaveState], WaveState]",
         actx.compile(rhs),  # pyright: ignore[reportArgumentType]
     )
-
-    logger.info("dt = %g", dt)
 
     fields = actx.thaw(actx.freeze(fields))
     compiled_rhs(fields)
