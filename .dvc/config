@@ -1,0 +1,7 @@
+[core]
+    remote = origin
+['remote "origin"']
+    url = https://pub-1e297f88a1ed4f6c892f0e25700d9e58.r2.dev
+['remote "upload"']
+    url = s3://actx-dgfem-bench
+    endpointurl = https://1b4a7ea70168932b78c936542207bc04.r2.cloudflarestorage.com

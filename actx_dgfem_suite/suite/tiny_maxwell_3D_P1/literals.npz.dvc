@@ -1,0 +1,5 @@
+outs:
+- md5: 7af3667004d41dc033fc60ff43497e35
+  size: 119240
+  hash: md5
+  path: literals.npz
