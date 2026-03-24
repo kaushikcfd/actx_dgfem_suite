@@ -5,13 +5,11 @@ A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
 
 import argparse
 import dataclasses as dc
-import datetime
 from collections.abc import Sequence
 
 import loopy as lp
 import numpy as np
 import numpy.typing as npt
-import pytz
 from arraycontext import ArrayContext, EagerJAXArrayContext, PytatoJAXArrayContext
 from bidict import bidict
 from meshmode.array_context import (
@@ -82,19 +80,20 @@ def main(
                 roofline_flop_rate[idim, iequation, idegree] = (
                     get_roofline_flop_rate(equation, dim, degree)
                 )
-    filename = datetime.datetime.now(pytz.timezone("America/Chicago")).strftime(
-        "archive/case_%Y_%m_%d_%H%M.npz"
-    )
+    # TODO: Re-enable saving.
+    # filename = datetime.datetime.now(pytz.timezone("America/Chicago")).strftime(
+    #     "archive/case_%Y_%m_%d_%H%M.npz"
+    # )
 
-    np.savez(
-        filename,
-        equations=equations,
-        degrees=degrees,
-        dims=dims,
-        actx_ts=actx_ts,  # pyright: ignore[reportArgumentType]
-        flop_rate=flop_rate,
-        roofline_flop_rate=roofline_flop_rate,
-    )
+    # np.savez(
+    #     filename,
+    #     equations=equations,
+    #     degrees=degrees,
+    #     dims=dims,
+    #     actx_ts=actx_ts,  # pyright-ignore[reportArgumentType]
+    #     flop_rate=flop_rate,
+    #     roofline_flop_rate=roofline_flop_rate,
+    # )
 
     for idim, dim in enumerate(dims):
         for iequation, equation in enumerate(equations):
