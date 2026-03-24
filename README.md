@@ -16,17 +16,15 @@ $ conda activate actx-dgfem-env
 $ pip install -e .
 ```
 
-Supporting input data is made available via pickled files. Run the following
-commands to get the pickle blobs for the current suite.
+Supporting input data is managed with [DVC](https://dvc.org) and hosted on
+[DagsHub](https://dagshub.com/kaushikcfd/actx_dgfem_bench). Pull the data with:
 
 ```console
-$ cd actx_dgfem_suite/tools/
-$ python download_pickled_files.py
+$ dvc pull
 ```
 
-**WARNING:** The above command downloads pickled files approx. 800MB in size. To avoid network
-traffic and for better security practices, see `actx_dgfem_suite/suite_generators.py` to generate
-them.
+To avoid network traffic and for better security practices, see
+`actx_dgfem_suite/suite_generators.py` to generate the data locally instead
 
 
 ## HOWTO: Run the timing suite
@@ -98,6 +96,26 @@ optional arguments:
                  problem)
   --degrees G    comma separated integers representing the polynomial degree of the discretizing function spaces to run the problems on (for ex. 1,2,3 to run
                  using P1,P2,P3 function spaces)
+```
+
+After running `suite_generators` and producing new pkl/npz files:
+
+```console
+# Re-add changed files (DVC detects what changed)
+$ find actx_dgfem_suite/suite -name "*.pkl" -o -name "*.npz" | sort | xargs dvc add
+
+# Push new blobs to DagsHub
+$ dvc push
+
+# Commit updated pointer files
+$ git add actx_dgfem_suite/suite/
+$ git commit -m "Update benchmark data for <reason>"
+$ git push
+```
+
+To prune old blobs from DagsHub remote (avoiding the LFS-style accumulation problem):
+```console
+$ dvc gc --cloud -w   # keeps only what the current workspace references
 ```
 
 ## LICENSE
