@@ -8,7 +8,7 @@ from arraycontext.container.traversal import (
     rec_keyed_map_array_container,
     rec_map_array_container,
 )
-from immutabledict import immutabledict
+from constantdict import constantdict
 from meshmode.transform_metadata import (
     DiscretizationAmbientDimAxisTag,
     DiscretizationDOFAxisTag,
@@ -3889,7 +3889,7 @@ class RHSInvoker:
     def npzfile(self):
         import os
 
-        from immutabledict import immutabledict
+        from constantdict import constantdict
 
         kw_to_ary = np.load(
             os.path.join(
@@ -3897,7 +3897,7 @@ class RHSInvoker:
                 "suite/cns_without_chem_3D_P2/literals.npz",
             )
         )
-        return immutabledict(
+        return constantdict(
             {
                 kw: self.actx.freeze(self.actx.from_numpy(ary))
                 for kw, ary in kw_to_ary.items()
@@ -3950,7 +3950,7 @@ class RHSInvoker:
 
         rec_keyed_map_array_container(_as_dict_of_named_arrays, output_template)
 
-        return immutabledict(
+        return constantdict(
             {
                 output_key: i
                 for i, output_key in enumerate(
