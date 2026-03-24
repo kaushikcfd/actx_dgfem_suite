@@ -249,6 +249,7 @@ class FlopCounter(CachedWalkMapper[[]]):
             BinaryOpType,
             BroadcastOp,
             C99CallOp,
+            FullOp,
             LogicalNotOp,
             ReduceOp,
             WhereOp,
@@ -294,6 +295,13 @@ class FlopCounter(CachedWalkMapper[[]]):
                 self.update_dtype_to_counts(
                     expr.dtype, OpCounts.from_comparison(expr.size)
                 )
+            elif hlo.binary_op in [
+                BinaryOpType.LOGICAL_AND,
+                BinaryOpType.LOGICAL_OR,
+            ]:
+                self.update_dtype_to_counts(
+                    expr.dtype, OpCounts.from_logical(expr.size)
+                )
             else:
                 raise NotImplementedError(
                     f"Unsupported binary op type {hlo.binary_op}."
@@ -322,7 +330,7 @@ class FlopCounter(CachedWalkMapper[[]]):
             self.update_dtype_to_counts(
                 hlo.x.dtype, OpCounts.from_logical(expr.size)
             )
-        elif isinstance(hlo, ZerosLikeOp):
+        elif isinstance(hlo, (ZerosLikeOp, FullOp)):
             # do nothing node.
             pass
         elif isinstance(hlo, ReduceOp):
@@ -590,7 +598,7 @@ def get_float64_flops(equation: str, dim: int, degree: int) -> int:
     float64_flops += fp64_count.logical
     float64_flops += fp64_count.where
     for func_name, count in fp64_count.function_calls.items():
-        if func_name in ["max", "min", "isnan"]:
+        if func_name in ["max", "min", "isnan", "sqrt"]:
             float64_flops += count
         else:
             raise NotImplementedError(f"Flops for func name: {func_name}.")
