@@ -16,8 +16,7 @@ $ conda activate actx-dgfem-env
 $ pip install -e .
 ```
 
-Supporting input data is managed with [DVC](https://dvc.org) and hosted on
-[DagsHub](https://dagshub.com/kaushikcfd/actx_dgfem_bench). Pull the data with:
+Supporting input data is managed with [DVC](https://dvc.org). Pull the data with:
 
 ```console
 $ dvc pull
@@ -104,7 +103,7 @@ After running `suite_generators` and producing new pkl/npz files:
 # Re-add changed files (DVC detects what changed)
 $ find actx_dgfem_suite/suite -name "*.pkl" -o -name "*.npz" | sort | xargs dvc add
 
-# Push new blobs to DagsHub
+# Push new blobs to S3
 $ dvc push
 
 # Commit updated pointer files
@@ -113,7 +112,7 @@ $ git commit -m "Update benchmark data for <reason>"
 $ git push
 ```
 
-To prune old blobs from DagsHub remote (avoiding the LFS-style accumulation problem):
+To prune old blobs from DVC remote (avoiding the LFS-style accumulation problem):
 ```console
 $ dvc gc --cloud -w   # keeps only what the current workspace references
 ```
