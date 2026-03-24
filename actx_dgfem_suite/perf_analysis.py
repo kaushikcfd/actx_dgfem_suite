@@ -79,7 +79,8 @@ class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
         :returns: A transformed version of *dag*.
         """
         dag = super().transform_dag(dag)
-        if self.ir_to_inspect == "pytato":
+        if self.ir_to_inspect == "pytato" and pt.analysis.get_num_nodes(dag) > 20:
+            # FIXME: There has to be a more accurate way to check this.
             raise OptimizedDGFemIRInspectingActxError(dag)
         return dag
 
@@ -230,6 +231,12 @@ class FlopCounter(CachedWalkMapper[[]]):
         self.dtype_to_counts: dict[np.dtype[Any], OpCounts] = {}
         super().__init__()
 
+    @override
+    def get_cache_key(
+        self, expr: pt.transform.ArrayOrNames
+    ) -> pt.transform.ArrayOrNames:
+        return expr
+
     def update_dtype_to_counts(self, dtype: np.dtype[Any], count: OpCounts) -> None:
         self.dtype_to_counts[dtype] = (
             self.dtype_to_counts.get(dtype, OpCounts._zeroed_defaults()) + count
@@ -368,6 +375,7 @@ class FlopCounter(CachedWalkMapper[[]]):
             get_einsum_specification(expr), *expr.args, optimize="optimal"
         )
         flop_count = int(path_info.opt_cost)
+        # FIXME: Is the FLOP count FMA (I suspect, we are double-counting here.)
         self.update_dtype_to_counts(
             expr.dtype,
             OpCounts._zeroed_defaults(add=flop_count, mult=flop_count),
@@ -549,7 +557,7 @@ def get_float64_flops(equation: str, dim: int, degree: int) -> int:
     f64 = np.dtype(np.float64)
     c128 = np.dtype(np.complex128)
 
-    fp64_count = dtype_to_counts[f64]
+    fp64_count = dtype_to_counts.get(f64, OpCounts._zeroed_defaults())
 
     float64_flops += fp64_count.add
     float64_flops += fp64_count.mult
@@ -564,7 +572,7 @@ def get_float64_flops(equation: str, dim: int, degree: int) -> int:
         else:
             raise NotImplementedError(f"Flops for func name: {func_name}.")
 
-    c128_count = dtype_to_counts[c128]
+    c128_count = dtype_to_counts.get(c128, OpCounts._zeroed_defaults())
     float64_flops += 2 * c128_count.add
     float64_flops += 6 * c128_count.mult
     float64_flops += 11 * c128_count.div
