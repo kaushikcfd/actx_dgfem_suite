@@ -370,16 +370,39 @@ class FlopCounter(CachedWalkMapper[[]]):
             self.rec(arg)
 
         from pytato.utils import get_einsum_specification
+        from pytools import product
 
         _, path_info = opt_einsum.contract_path(
-            get_einsum_specification(expr), *expr.args, optimize="optimal"
+            get_einsum_specification(expr),
+            *expr.args,
+            optimize="optimal",
+            use_blas=False,
         )
-        flop_count = int(path_info.opt_cost)
-        # FIXME: Is the FLOP count FMA (I suspect, we are double-counting here.)
-        self.update_dtype_to_counts(
-            expr.dtype,
-            OpCounts._zeroed_defaults(add=flop_count, mult=flop_count),
-        )
+        total_counts = OpCounts._zeroed_defaults()
+        for (
+            _,  # pyright: ignore[reportAny]
+            contracted_ids,
+            einsum_str,
+            _,
+            _,
+        ) in path_info.contraction_list:
+            iteration_count = product(
+                path_info.size_dict[idx]
+                for idx in set(einsum_str.translate(str.maketrans("", "", " ->,")))
+            )
+
+            if contracted_ids:
+                # Has reduction: one mult + one add per inner loop count.
+                total_counts = total_counts + OpCounts._zeroed_defaults(
+                    mult=iteration_count, add=iteration_count
+                )
+            else:
+                # Pure outer product: only multiplications
+                total_counts = total_counts + OpCounts._zeroed_defaults(
+                    mult=iteration_count
+                )
+
+        self.update_dtype_to_counts(expr.dtype, total_counts)
 
     @override
     def map_roll(self, expr: pt.Roll) -> None:
