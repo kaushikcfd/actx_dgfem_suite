@@ -16,6 +16,7 @@ import loopy as lp
 import numpy as np
 import opt_einsum  # pyright: ignore[reportMissingTypeStubs]
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 import pytato as pt
 from constantdict import constantdict
 from pymbolic.typing import Integer
@@ -25,6 +26,7 @@ from typing_extensions import override
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 
 if TYPE_CHECKING:
+    import pyopencl.array as cl_array
     from pytato.array import ArrayOrScalar
     from pytato.loopy import LoopyCall
 
@@ -57,8 +59,9 @@ class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
         self,
         ir_to_inspect: Literal["pytato", "loopy"],
         queue: cl.CommandQueue,
+        allocator: cl_array.Allocator,
     ) -> None:
-        super().__init__(queue=queue)
+        super().__init__(queue=queue, allocator=allocator)
         self.ir_to_inspect: Literal["pytato", "loopy"] = ir_to_inspect
 
     @override
@@ -469,8 +472,9 @@ def _get_ir(
     rhs_invoker = get_benchmark_rhs_invoker(equation, dim, degree)
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)
+    alloc = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(cq))
 
-    actx = OptimizedDGFemIRInspectingActx(ir_type, cq)
+    actx = OptimizedDGFemIRInspectingActx(ir_type, cq, alloc)
     rhs_clbl: Callable[..., None] = rhs_invoker(actx)  # pyright: ignore[reportAny]
 
     with open(
