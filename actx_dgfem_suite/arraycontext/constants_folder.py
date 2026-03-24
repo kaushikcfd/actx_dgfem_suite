@@ -33,11 +33,13 @@ def _fold_constant_einsum_indirection_args(
                     actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType]
                         arg
                     ).without_tags(pt.tags.ImplStored())
-                    if _can_be_folded(arg, input_base_getter)
+                    if (
+                        _can_be_folded(arg, input_base_getter)
+                        and (not isinstance(arg, pt.DataWrapper))
+                    )
                     else arg
                 )
                 for arg in expr.args
-                if not isinstance(arg, pt.DataWrapper)
             )
         )
     elif isinstance(
