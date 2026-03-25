@@ -57,6 +57,3 @@ MANIFEST
 *~
 \#*\#
 .\#*
-
-actx_dgfem_suite/*/*/*.pkl
-actx_dgfem_suite/*/*/*.npz
