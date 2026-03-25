@@ -66,7 +66,7 @@ def remove_tags_with_typenames(
     return pt.transform.map_and_copy(expr, map_fn)
 
 
-BAD_TAG_TYPENAMES = frozenset(["NameHint", "FEMEinsumTag"])
+BAD_TAG_TYPENAMES = frozenset(["NameHint"])
 
 
 class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCaller):

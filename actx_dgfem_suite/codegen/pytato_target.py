@@ -301,7 +301,7 @@ class ArraycontextCodegenMapper(CachedMapper[str, Never, []]):
                 if {
                     tag
                     for tag in expr.tags
-                    if tag.__class__.__name__ not in ["NameHint", "FEMEinsumTag"]
+                    if tag.__class__.__name__ not in ["NameHint"]
                 }:
                     # FIXME: We ignore NameHint tags as we already have pytato tags
                     rhs = ast.Call(
@@ -312,7 +312,7 @@ class ArraycontextCodegenMapper(CachedMapper[str, Never, []]):
                                     self._get_tag_expr(tag)
                                     for tag in expr.tags
                                     if tag.__class__.__name__
-                                    not in ["NameHint", "FEMEinsumTag"]
+                                    not in ["NameHint"]
                                 ]
                             ),
                             ast.Name(lhs),
