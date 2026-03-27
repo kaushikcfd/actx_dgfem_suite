@@ -5,6 +5,9 @@ import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
 from typing_extensions import override
 
+from actx_dgfem_suite.arraycontext.batched_einsum_loop_transforms import (
+    transform_batched_einsum_loop_nests,
+)
 from actx_dgfem_suite.arraycontext.constants_folder import (
     fold_constants_in_einsum_indirections,
 )
@@ -84,5 +87,13 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         ):
             return self.comptime_actx.transform_loopy_program(t_unit)
 
+        # Make offsets as 0. (FIXME: move this to loopy knl invocation)
+        # -----------------------------------------------------------------------
+        knl = t_unit.default_entrypoint
+        knl = knl.copy(args=[arg.copy(offset=0) for arg in knl.args])
+        t_unit = t_unit.with_kernel(knl)
+        del knl
+
         t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
-        return add_gbarrier_between_disjoint_loop_nests(t_unit)
+        t_unit = add_gbarrier_between_disjoint_loop_nests(t_unit)
+        return transform_batched_einsum_loop_nests(t_unit, self.queue.device)
