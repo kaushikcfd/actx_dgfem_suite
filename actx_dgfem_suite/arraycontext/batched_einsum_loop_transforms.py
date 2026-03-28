@@ -152,7 +152,12 @@ def transform_batched_einsum_loop_nests(
         try:
             transform = fnsm.retrieve(batched_einsum, cl_device)
         except NoFactInDatabaseError as err:
-            raise NotImplementedError(f"{batched_einsum}") from err
+            if _is_facemass_einsum(batched_einsum):
+                from .batched_facemass_einsum_transforms import transform
+
+                t_unit = transform(t_unit, insn_match=within)
+            else:
+                raise NotImplementedError(f"{batched_einsum}") from err
         else:
             t_unit = transform(t_unit, insn_match=within)
 
