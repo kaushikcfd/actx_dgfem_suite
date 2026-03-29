@@ -70,4 +70,6 @@ def main(actx: ArrayContext, dim: int, order: int, ndofs: int):
     compiled_rhs = actx.compile(rhs)
 
     fields = actx.freeze_thaw(fields)
+    # Hack to forces real only fields.
+    fields = actx.np.real(fields)
     compiled_rhs(np.float64(0.5), fields)
