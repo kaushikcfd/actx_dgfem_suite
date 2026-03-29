@@ -311,8 +311,7 @@ class ArraycontextCodegenMapper(CachedMapper[str, Never, []]):
                                 elts=[
                                     self._get_tag_expr(tag)
                                     for tag in expr.tags
-                                    if tag.__class__.__name__
-                                    not in ["NameHint"]
+                                    if tag.__class__.__name__ not in ["NameHint"]
                                 ]
                             ),
                             ast.Name(lhs),
