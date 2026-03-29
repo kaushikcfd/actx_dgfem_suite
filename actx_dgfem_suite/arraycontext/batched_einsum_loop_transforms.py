@@ -160,6 +160,10 @@ def transform_batched_einsum_loop_nests(
                 from .batched_derivative_einsum_transforms import transform
 
                 t_unit = transform(t_unit, insn_match=within)
+            elif _is_divergence_einsum(batched_einsum):
+                from .batched_divergence_einsum_transforms import transform
+
+                t_unit = transform(t_unit, insn_match=within)
             else:
                 raise NotImplementedError(f"{batched_einsum}") from err
         else:
