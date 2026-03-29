@@ -1,5 +1,5 @@
 outs:
-- md5: d435376bb746886c0b6b47dea9646700
-  size: 135895
+- md5: c5c4e77fd03ad88e47bf5900d6a7d778
+  size: 74420
   hash: md5
   path: ref_input_args.pkl
