@@ -101,4 +101,9 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
 
         t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
         t_unit = add_gbarrier_between_disjoint_loop_nests(t_unit)
-        return transform_batched_einsum_loop_nests(t_unit, self.queue.device)
+        t_unit = transform_batched_einsum_loop_nests(t_unit, self.queue.device)
+        t_unit = lp.set_options(  # pyright: ignore[reportUnknownMemberType]
+            t_unit,
+            build_options=["-cl-fast-relaxed-math", "-cl-mad-enable"],
+        )
+        return t_unit
