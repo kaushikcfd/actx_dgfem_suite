@@ -68,6 +68,13 @@ def _fold_constant_einsum_indirection_args(
             raveled_idx = raveled_idx + stride * idx
             stride *= axis_len
 
+        assert isinstance(raveled_idx, pt.Array)
+        raveled_idx = (
+            raveled_idx.astype(f"u{raveled_idx.dtype.name}")
+            if raveled_idx.dtype.kind == "i"
+            else raveled_idx
+        )
+        assert raveled_idx.dtype.kind == "u"
         thawed_idx = actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
             raveled_idx
         )
