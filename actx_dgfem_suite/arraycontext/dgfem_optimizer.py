@@ -90,7 +90,12 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         # Make offsets as 0. (FIXME: move this to loopy knl invocation)
         # -----------------------------------------------------------------------
         knl = t_unit.default_entrypoint
-        knl = knl.copy(args=[arg.copy(offset=0) for arg in knl.args])
+        knl = knl.copy(
+            args=tuple(
+                arg.copy(offset=0)  # pyright: ignore[reportUnknownMemberType]
+                for arg in knl.args
+            )
+        )
         t_unit = t_unit.with_kernel(knl)
         del knl
 
