@@ -238,13 +238,13 @@ def transform_single_field_derivatives_einsum(
         t_unit,
         [prcmpt_r],
         within=lp_match.Id(acc_j_init_id),
-        tags={prcmpt_r: "unr"},  # pyright: ignore[reportArgumentType]
+        tags={prcmpt_r: "unr"},
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         [prcmpt_r],
         within=lp_match.Id(acc_j_assign_id),
-        tags={prcmpt_r: "unr"},  # pyright: ignore[reportArgumentType]
+        tags={prcmpt_r: "unr"},
     )
     t_unit = lp.prioritize_loops(t_unit, (j_iname, prcmpt_r))
 

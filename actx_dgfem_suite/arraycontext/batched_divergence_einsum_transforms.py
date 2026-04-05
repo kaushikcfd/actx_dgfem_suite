@@ -189,7 +189,7 @@ def transform_single_divergence_einsum(
         tags={
             prcmpt_x: "unr",
             prcmpt_r: "unr",
-        },  # pyright: ignore[reportArgumentType]
+        },
     )
     t_unit = lp.duplicate_inames(
         t_unit,
@@ -198,7 +198,7 @@ def transform_single_divergence_einsum(
         tags={
             prcmpt_x: "unr",
             prcmpt_r: "unr",
-        },  # pyright: ignore[reportArgumentType]
+        },
     )
     t_unit = lp.prioritize_loops(t_unit, (j_iname, prcmpt_x, prcmpt_r))
 
