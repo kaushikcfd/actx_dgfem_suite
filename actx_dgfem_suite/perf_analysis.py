@@ -579,6 +579,7 @@ def _get_ir(
 
 
 @cache
+@lp.memoize_on_disk
 def get_float64_flops(equation: str, dim: int, degree: int) -> int:
     expr = _get_ir("pytato", equation, dim, degree)
     assert isinstance(expr, pt.AbstractResultWithNamedArrays)
@@ -624,6 +625,7 @@ def get_float64_flops(equation: str, dim: int, degree: int) -> int:
 
 
 @cache
+@lp.memoize_on_disk
 def get_footprint_bytes(equation: str, dim: int, degree: int) -> int:
     from loopy.schedule import CallKernel
     from loopy.schedule.tools import get_subkernel_arg_info
@@ -666,6 +668,7 @@ def get_footprint_bytes(equation: str, dim: int, degree: int) -> int:
 
 
 @cache
+@lp.memoize_on_disk
 def get_roofline_flop_rate(
     equation: str,
     dim: int,

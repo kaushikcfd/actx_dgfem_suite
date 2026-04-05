@@ -62,6 +62,13 @@ def main(
         [len(dims), len(equations), len(degrees)]
     )
 
+    for idim, dim in enumerate(dims):
+        for iequation, equation in enumerate(equations):
+            for idegree, degree in enumerate(degrees):
+                roofline_flop_rate[idim, iequation, idegree] = (
+                    get_roofline_flop_rate(equation, dim, degree)
+                )
+
     # sorting `actx_ts` to run JAX related operations at the end as they only
     # free the device memory atexit
     for iactx_t, actx_t in sorted(
@@ -74,12 +81,6 @@ def main(
                         actx_t, equation, dim, degree
                     )
 
-    for idim, dim in enumerate(dims):
-        for iequation, equation in enumerate(equations):
-            for idegree, degree in enumerate(degrees):
-                roofline_flop_rate[idim, iequation, idegree] = (
-                    get_roofline_flop_rate(equation, dim, degree)
-                )
     # TODO: Re-enable saving.
     # filename = datetime.datetime.now(pytz.timezone("America/Chicago")).strftime(
     #     "archive/case_%Y_%m_%d_%H%M.npz"
