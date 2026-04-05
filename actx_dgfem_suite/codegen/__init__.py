@@ -392,7 +392,7 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
         black.format_file_in_place(
             Path(self.actx.main_file_path),
             fast=False,
-            mode=black.Mode(line_length=85),
+            mode=black.Mode(line_length=85, magic_trailing_comma=True),
             write_back=black.WriteBack.YES,
         )
 
