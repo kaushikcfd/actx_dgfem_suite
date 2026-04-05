@@ -169,6 +169,7 @@ def transform_single_field_facemass_einsum(
     # All b instructions keep the SAME f,j inames (no duplication) so that
     # Steps 3 and 4 can exploit loop fusion across the b accumulations.
     from loopy.symbolic import get_dependencies
+
     knl = t_unit[kernel_name]
     mu_subst_names = tuple(vng(f"_tmp_Mu_{ib}") for ib in range(b))
 
