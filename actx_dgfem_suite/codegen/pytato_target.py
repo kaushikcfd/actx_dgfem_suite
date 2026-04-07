@@ -1082,9 +1082,7 @@ def generate_arraycontext_code(
         assert isinstance(colorize_show_code, bool)
 
         if _can_colorize_output() and colorize_show_code:
-            from pygments import (
-                highlight,  # pyright: ignore[reportUnknownVariableType]
-            )
+            from pygments import highlight
             from pygments.formatters import TerminalTrueColorFormatter
             from pygments.lexers import (
                 PythonLexer,  # pyright: ignore[reportUnknownVariableType]
