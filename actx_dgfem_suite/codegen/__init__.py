@@ -28,6 +28,7 @@ from arraycontext.impl.pytato.compile import (
     BaseLazilyCompilingFunctionCaller,
     CompiledFunction,
 )
+from black.mode import TargetVersion
 from meshmode.dof_array import array_context_for_pickling
 from pytools import memoize_method
 from typing_extensions import override
@@ -389,10 +390,11 @@ class LazilyArraycontextCompilingFunctionCaller(BaseLazilyCompilingFunctionCalle
             standard_error=sys.stderr,
             standard_input=sys.stdin,
         )
+
         black.format_file_in_place(
             Path(self.actx.main_file_path),
             fast=False,
-            mode=black.Mode(line_length=85, magic_trailing_comma=True),
+            mode=black.Mode(line_length=85, target_versions={TargetVersion.PY312}),
             write_back=black.WriteBack.YES,
         )
 
