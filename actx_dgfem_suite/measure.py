@@ -63,6 +63,16 @@ def _instantiate_actx_t(actx_t: type[ArrayContext]) -> ArrayContext:
         raise NotImplementedError(actx_t)
 
 
+def finish_command_queue(actx: ArrayContext) -> None:
+    if isinstance(actx, (PytatoPyOpenCLArrayContext, PyOpenCLArrayContext)):
+        actx.queue.finish()
+    elif isinstance(actx, (EagerJAXArrayContext, PytatoJAXArrayContext)):
+        # actx.compile would have called block_until_ready.
+        pass
+    else:
+        raise NotImplementedError(type(actx))
+
+
 def get_flop_rate(
     actx_t: type[ArrayContext], equation: str, dim: int, degree: int
 ) -> float:
@@ -140,13 +150,17 @@ def get_flop_rate(
 
     # {{{ verify correctness for actx_t
 
-    if 0:
-        output = rhs_clbl(*args, **kwargs)  # pyright: ignore[reportAny]
-        rec_multimap_array_container(
-            np.testing.assert_allclose,
-            np_ref_output,
-            actx.to_numpy(output),  # pyright: ignore[reportAny]
-        )
+    output = rhs_clbl(*args, **kwargs)  # pyright: ignore[reportAny]
+    rec_multimap_array_container(
+        lambda x, y: np.testing.assert_allclose(  # pyright: ignore[reportUnknownLambdaType,reportUnknownArgumentType]
+            x,  # pyright: ignore[reportUnknownArgumentType]
+            y,  # pyright: ignore[reportUnknownArgumentType]
+            rtol=1e-7,
+            atol=1e-7,
+        ),
+        np_ref_output,
+        actx.to_numpy(output),  # pyright: ignore[reportAny]
+    )
 
     # }}}
 
@@ -169,15 +183,17 @@ def get_flop_rate(
     i_timing = 0
     t_rhs = 0
 
-    while i_timing < 100 and t_rhs < 5:
+    while i_timing < 50 and t_rhs < 5:
 
+        finish_command_queue(actx)
         t_start = time()
-        for _ in range(40):
+        for _ in range(5):
             rhs_clbl(*args, **kwargs)
+        finish_command_queue(actx)
         t_end = time()
 
         t_rhs += t_end - t_start
-        i_timing += 40
+        i_timing += 5
 
     # }}}
 
