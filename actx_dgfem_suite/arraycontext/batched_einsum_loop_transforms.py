@@ -150,7 +150,28 @@ def transform_batched_einsum_loop_nests(
             long_dim_length=36,
         )
         try:
-            transform = fnsm.retrieve(batched_einsum, cl_device)
+            # known bad performing transforms.
+            banned_transform_ids: set[str] = set()
+            if _is_facemass_einsum(batched_einsum):
+                # ifj_fe_fej_to_ei chunks across the batch of einsum ->
+                # prohibiting data sharing across the flux terms. Instead,
+                # prefer transform spaces that avoid chunking across these
+                # batch.
+                banned_transform_ids.add("ifj_fe_fej_to_ei.py")
+                if batched_einsum.shape[-1] == 35:
+                    # empirically observed to be bad performing.
+                    banned_transform_ids.add("ifj_fe_fej_to_ei_v3.py")
+
+            if _is_divergence_einsum(batched_einsum) and batched_einsum.b > 1:
+                # Similar to ifj_fe_fej_to_ei, batched_xre_rij_xej_to_ei chunks
+                # across the batch -> prohibits data reuse -> avoid using it.
+                banned_transform_ids.add("batched_xre_rij_xej_to_ei.py")
+
+            transform = fnsm.retrieve(
+                batched_einsum,
+                cl_device,
+                consider_query=lambda q: q.transform_id not in banned_transform_ids,
+            )
         except NoFactInDatabaseError as err:
             if _is_facemass_einsum(batched_einsum):
                 from .batched_facemass_einsum_transforms import transform
