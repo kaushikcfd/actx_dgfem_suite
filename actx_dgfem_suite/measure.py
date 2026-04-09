@@ -198,5 +198,6 @@ def get_flop_rate(
     # }}}
 
     flops = get_float64_flops(equation, dim, degree)
+    print(f"Avg time = {(t_rhs / i_timing) * 1000} ms.")
 
     return (flops * i_timing) / t_rhs
