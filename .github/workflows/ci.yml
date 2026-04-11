@@ -119,6 +119,7 @@ jobs:
       - name: Execute tiny operators
         run: |
           dvc pull
+          pip freeze
           python ${{ matrix.optimize }} -m actx_dgfem_suite.run \
             --equations ${{ matrix.equation }}  \
             --dims 2,3 \
