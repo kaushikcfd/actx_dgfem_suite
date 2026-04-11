@@ -26,7 +26,7 @@ jobs:
           auto-update-conda: true
 
       - name: Install actx_dgfem_suite
-        run: pip install .
+        run: pip install -e .
 
       - name: Run ruff
         run: ruff check
@@ -44,7 +44,7 @@ jobs:
           auto-update-conda: true
 
       - name: Install actx_dgfem_suite
-        run: pip install .
+        run: pip install -e .
 
       - name: Run basedpyright
         run: basedpyright
@@ -62,7 +62,7 @@ jobs:
           auto-update-conda: true
 
       - name: Install actx_dgfem_suite
-        run: pip install .
+        run: pip install -e .
 
       - name: Run pytest
         run: |
@@ -85,7 +85,7 @@ jobs:
           auto-update-conda: true
 
       - name: Install actx_dgfem_suite
-        run: pip install .
+        run: pip install -e .
 
       - name: Generate tiny operators
         run: |
@@ -114,7 +114,7 @@ jobs:
           auto-update-conda: true
 
       - name: Install actx_dgfem_suite
-        run: pip install .
+        run: pip install -e .
 
       - name: Execute tiny operators
         run: |
