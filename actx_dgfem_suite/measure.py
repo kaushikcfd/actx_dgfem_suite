@@ -143,10 +143,7 @@ def get_flop_rate(
             },
         )
 
-    if is_dataclass_array_container(ref_output):  # pyright: ignore[reportAny]
-        np_ref_output = actx.to_numpy(ref_output)  # pyright: ignore[reportAny]
-    else:
-        np_ref_output = ref_output  # pyright: ignore[reportAny]
+    np_ref_output = actx.to_numpy(ref_output)  # pyright: ignore[reportAny]
 
     # {{{ verify correctness for actx_t
 
