@@ -251,7 +251,7 @@ def transform_single_field_derivatives_einsum(
     return t_unit
 
 
-def transform(
+def split_batched_derivative_einsum_into_single_field_derivative(
     t_unit: lp.TranslationUnit,
     insn_match: Any | None = None,
     kernel_name: str | None = None,
@@ -295,7 +295,35 @@ def transform(
         t_unit = decouple_domain(
             t_unit, a_next_insn.within_inames | a_next_insn.reduction_inames(), set()
         )
-    for insn_ids in insn_id_groups:
+
+    return t_unit
+
+
+def transform(
+    t_unit: lp.TranslationUnit,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
+) -> lp.TranslationUnit:
+    within = lp_match.parse_match(insn_match)
+    kernel_name = kernel_name or t_unit.default_entrypoint.name
+    t_unit = split_batched_derivative_einsum_into_single_field_derivative(
+        t_unit, within, kernel_name
+    )
+
+    insn_ids_matched = tuple(
+        insn.id
+        for insn in t_unit[kernel_name].instructions
+        if within(t_unit[kernel_name], insn)
+    )
+    loop_nest_to_insn_ids: dict[frozenset[str], set[str]] = {}
+    for insn_id in insn_ids_matched:
+        loop_nest_to_insn_ids.setdefault(
+            t_unit[kernel_name].id_to_insn[insn_id].within_inames, set()
+        ).add(insn_id)
+
+    for _, insn_ids in sorted(
+        loop_nest_to_insn_ids.items(), key=lambda k_x_v: sorted(k_x_v[0])
+    ):
         within = lp_match.Or(tuple(lp_match.Id(id_) for id_ in insn_ids))
         t_unit = transform_single_field_derivatives_einsum(
             t_unit, within, kernel_name

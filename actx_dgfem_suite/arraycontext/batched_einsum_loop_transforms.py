@@ -137,12 +137,40 @@ def transform_batched_einsum_loop_nests(
 ) -> lp.TranslationUnit:
     t_unit = _merge_domains_for_potential_loop_nests(t_unit)
 
-    loop_nests = frozenset(
-        insn.within_inames
-        for insn in t_unit.default_entrypoint.instructions
-        if not isinstance(insn, lp.BarrierInstruction)
-    )
-    for loop_nest in sorted(loop_nests, key=sorted):
+    # partition derivative loop nests for same fields.
+    for loop_nest in sorted(
+        {
+            insn.within_inames
+            for insn in t_unit.default_entrypoint.instructions
+            if not isinstance(insn, lp.BarrierInstruction)
+        },
+        key=sorted,
+    ):
+        within = lp_match.And(tuple(lp_match.Iname(iname) for iname in loop_nest))
+        batched_einsum, _ = fnsm.get_a_matched_einsum(
+            t_unit,
+            insn_match=within,
+            long_dim_length=36,
+        )
+
+        if _is_derivative_einsum(batched_einsum):
+            from .batched_derivative_einsum_transforms import (
+                split_batched_derivative_einsum_into_single_field_derivative,
+            )
+
+            t_unit = split_batched_derivative_einsum_into_single_field_derivative(
+                t_unit, insn_match=within
+            )
+
+    # use feinsum to transform batched einsums or fallback to libparanumal transform
+    for loop_nest in sorted(
+        {
+            insn.within_inames
+            for insn in t_unit.default_entrypoint.instructions
+            if not isinstance(insn, lp.BarrierInstruction)
+        },
+        key=sorted,
+    ):
         within = lp_match.And(tuple(lp_match.Iname(iname) for iname in loop_nest))
         batched_einsum, _ = fnsm.get_a_matched_einsum(
             t_unit,
