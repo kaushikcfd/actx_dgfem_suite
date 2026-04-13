@@ -1,5 +1,6 @@
 [core]
     remote = origin
+    autostage = true
 ['remote "origin"']
     url = https://pub-1e297f88a1ed4f6c892f0e25700d9e58.r2.dev
 ['remote "upload"']
