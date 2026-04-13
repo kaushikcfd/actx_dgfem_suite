@@ -5,6 +5,7 @@ A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
 
 import argparse
 import dataclasses as dc
+import gc
 from collections.abc import Sequence
 
 import loopy as lp
@@ -80,6 +81,7 @@ def main(
                     flop_rate[iactx_t, idim, iequation, idegree] = get_flop_rate(
                         actx_t, equation, dim, degree
                     )
+                    gc.collect()
 
     # TODO: Re-enable saving.
     # filename = datetime.datetime.now(pytz.timezone("America/Chicago")).strftime(

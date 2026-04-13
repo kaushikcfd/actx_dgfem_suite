@@ -184,13 +184,13 @@ def get_flop_rate(
 
         finish_command_queue(actx)
         t_start = time()
-        for _ in range(5):
+        for _ in range(3):
             rhs_clbl(*args, **kwargs)
         finish_command_queue(actx)
         t_end = time()
 
         t_rhs += t_end - t_start
-        i_timing += 5
+        i_timing += 3
 
     # }}}
 

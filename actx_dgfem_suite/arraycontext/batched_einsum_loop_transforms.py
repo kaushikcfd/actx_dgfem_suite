@@ -158,7 +158,7 @@ def transform_batched_einsum_loop_nests(
                 # prefer transform spaces that avoid chunking across these
                 # batch.
                 banned_transform_ids.add("ifj_fe_fej_to_ei.py")
-                if batched_einsum.shape[-1] == 35:
+                if batched_einsum.shape[-1] in {10, 35}:
                     # empirically observed to be bad performing.
                     banned_transform_ids.add("ifj_fe_fej_to_ei_v3.py")
 
