@@ -41,6 +41,9 @@ dependencies = [
 ]
 
 
+[tool.hatch.build.targets.wheel]
+exclude = ["assets"]
+
 [tool.ruff]
 preview = true
 line-length = 85
@@ -88,10 +91,11 @@ pythonVersion = "3.12"
 pythonPlatform = "All"
 
 ignore = [
+    "assets",
     "build",
     "doc/_build",
     "doc/conf.py",
-  
+
     # pulls lots of deps -> better to avoid it.
     "actx_dgfem_suite/suite_generators/cns.py",
     # auto-generated code -> no need to check.

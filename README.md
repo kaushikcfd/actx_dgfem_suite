@@ -32,51 +32,8 @@ $ python -O -m actx_dgfem_suite.run --equations "wave,euler,cns_without_chem" \
                                     --degrees "1,2,3,4" \
                                     --dims "3" \
                                     --actxs "pyopencl,jax:jit,pytato:dgfem_opt"
-GFLOPS/s for 3D-wave:
-╒════╤══════════╤═════════╤══════════════════╤══════════╕
-│    │ pyopencl │ jax:jit │ pytato:dgfem_opt │ Roofline │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P1 │ 5.3      │ 33.1    │ 112.1            │ 441.1    │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P2 │ 5.1      │ 86.7    │ 224.5            │ 707.9    │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P3 │ 5.5      │ 193.8   │ 428.5            │ 1163.9   │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P4 │ 4.2      │ 377.2   │ 645.9            │ 1874.8   │
-╘════╧══════════╧═════════╧══════════════════╧══════════╛
-
-GFLOPS/s for 3D-euler:
-╒════╤══════════╤═════════╤══════════════════╤══════════╕
-│    │ pyopencl │ jax:jit │ pytato:dgfem_opt │ Roofline │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P1 │ 23.0     │ 44.9    │ 225.8            │ 770.0    │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P2 │ 25.8     │ 81.1    │ 281.6            │ 971.7    │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P3 │ 31.7     │ 136.0   │ 355.9            │ 1326.4   │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P4 │ 40.9     │ 217.7   │ 485.8            │ 1897.8   │
-╘════╧══════════╧═════════╧══════════════════╧══════════╛
-
-GFLOPS/s for 3D-cns_without_chem:
-╒════╤══════════╤═════════╤══════════════════╤══════════╕
-│    │ pyopencl │ jax:jit │ pytato:dgfem_opt │ Roofline │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P1 │ 8.2      │ 35.1    │ 147.8            │ 510.3    │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P2 │ 7.7      │ 80.5    │ 282.2            │ 722.0    │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P3 │ 7.8      │ 160.6   │ 373.1            │ 1087.5   │
-├────┼──────────┼─────────┼──────────────────┼──────────┤
-│ P4 │ 5.6      │ 283.3   │ 466.4            │ 1650.2   │
-╘════╧══════════╧═════════╧══════════════════╧══════════╛
 ```
 
-
-## HOWTO: Add new arraycontext implementations to compare
-
-Update `run.py` to include your arraycontext type. We are happy to accept PRs
-for your `arraycontext` type.
 
 ## HOWTO: Add new tests to the suite
 
@@ -116,6 +73,20 @@ To prune old blobs from DVC remote (avoiding the LFS-style accumulation problem)
 ```console
 $ dvc gc --cloud -w   # keeps only what the current workspace references
 ```
+
+## HOWTO: Add new arraycontext implementations to compare
+
+Update `run.py` to include your arraycontext type. Happy to accept PRs for your
+`arraycontext` type.
+
+## HOWTO: Obtain libparanumal (hand-written baseline) throughput
+
+Use the following values for N=[BOX NX]=[BOX NY]=[BOX NZ] fields in
+`assets/libparanumal/solvers/acoustics/setups/setupTet3D.rc`:
+
+|   | P1 | P2 | P3 | P4 |
+|---|----|----|----|----|
+| N | 50 | 37 | 30 | 25 |
 
 ## LICENSE
 
