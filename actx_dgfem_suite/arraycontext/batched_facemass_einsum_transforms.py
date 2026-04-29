@@ -34,11 +34,18 @@ def _get_facemass_op_params(
     )
     (jac,) = [arg for arg in einsum.args[0] if arg.ndim == 2]
     nf = jac.shape[0]
-    nj = next(iter(arg for arg in einsum.args[0] if arg.ndim == 3)).shape[2]
+    nj = next(
+        iter(
+            arg
+            for arg in einsum.args[0]
+            if arg.ndim == 3
+            and not any(isinstance(axis_len, SizeParam) for axis_len in arg.shape)
+        )
+    ).shape[0]
 
     ref_einsum = fnsm.einsum(
-        "ifj,fe,fej->ei",
-        fnsm.array("M", (ni, nf, nj), jac.dtype),
+        "jfi,fe,fej->ei",
+        fnsm.array("M", (nj, nf, ni), jac.dtype),
         fnsm.array("J", (nf, "Ne"), jac.dtype),
         fnsm.array("u", (nf, "Ne", nj), jac.dtype),
     )
@@ -62,8 +69,8 @@ def _get_read_field_variables(
         t_unit, kernel_name, lp_match.Id(insn_id)
     )
     ref_einsum = fnsm.einsum(
-        "ifj,fe,fej->ei",
-        fnsm.array("M", (ni, nf, nj), dtype),
+        "jfi,fe,fej->ei",
+        fnsm.array("M", (nj, nf, ni), dtype),
         fnsm.array("J", (nf, "Ne"), dtype),
         fnsm.array("u", (nf, "Ne", nj), dtype),
     )
@@ -119,10 +126,10 @@ def transform_single_field_facemass_einsum(
     b, nf, ni, nj, dtype = _get_facemass_op_params(t_unit, kernel_name, within)
 
     ref_einsum = fnsm.batched_einsum(
-        "ifj,fe,fej->ei",
+        "jfi,fe,fej->ei",
         [
             [
-                fnsm.array("M", (ni, nf, nj), dtype),
+                fnsm.array("M", (nj, nf, ni), dtype),
                 fnsm.array("J", (nf, "Ne"), dtype),
                 fnsm.array(f"u_{i}", (nf, "Ne", nj), dtype),
             ]

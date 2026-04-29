@@ -26,12 +26,19 @@ def _is_facemass_einsum(batched_einsum: fnsm.BatchedEinsum) -> bool:
         return False
     (jac,) = [arg for arg in einsum.args[0] if arg.ndim == 2]
     nf = jac.shape[0]
-    nj = next(iter(arg for arg in einsum.args[0] if arg.ndim == 3)).shape[2]
+    nj = next(
+        iter(
+            arg
+            for arg in einsum.args[0]
+            if arg.ndim == 3
+            and not any(isinstance(axis_len, SizeParam) for axis_len in arg.shape)
+        )
+    ).shape[0]
 
     return fnsm.canonicalize_einsum(einsum) == fnsm.canonicalize_einsum(
         fnsm.einsum(
-            "ifj,fe,fej->ei",
-            fnsm.array("M", (ni, nf, nj), jac.dtype),
+            "jfi,fe,fej->ei",
+            fnsm.array("M", (nj, nf, ni), jac.dtype),
             fnsm.array("J", (nf, "Ne"), jac.dtype),
             fnsm.array("u", (nf, "Ne", nj), jac.dtype),
         )
@@ -59,11 +66,11 @@ def _is_derivative_einsum(batched_einsum: fnsm.BatchedEinsum) -> bool:
         return False
     (mat,) = [arg for arg in einsum.args[0] if arg.ndim == 3]
     nr = mat.shape[0]
-    nj = mat.shape[2]
+    nj = mat.shape[1]
 
     return fnsm.canonicalize_einsum(einsum) == fnsm.canonicalize_einsum(
         fnsm.einsum(
-            "re,rij,ej->ei",
+            "re,rji,ej->ei",
             fnsm.array("J", (nr, "Ne"), mat.dtype),
             fnsm.array("M", (nr, ni, nj), mat.dtype),
             fnsm.array("u", ("Ne", nj), mat.dtype),
@@ -88,14 +95,14 @@ def _is_divergence_einsum(batched_einsum: fnsm.BatchedEinsum) -> bool:
         for arg in einsum.args[0]
         if not any(isinstance(s, SizeParam) for s in arg.shape)
     ]
-    nr, ni, nj = mat.shape
+    nr, nj, ni = mat.shape
     nx = nr
 
     return fnsm.canonicalize_einsum(einsum) == fnsm.canonicalize_einsum(
         fnsm.einsum(
-            "xre,rij,xej->ei",
+            "xre,rji,xej->ei",
             fnsm.array("J", (nx, nr, "Ne"), mat.dtype),
-            fnsm.array("M", (nr, ni, nj), mat.dtype),
+            fnsm.array("M", (nr, nj, ni), mat.dtype),
             fnsm.array("u", (nx, "Ne", nj), mat.dtype),
         )
     )
@@ -137,31 +144,6 @@ def transform_batched_einsum_loop_nests(
 ) -> lp.TranslationUnit:
     t_unit = _merge_domains_for_potential_loop_nests(t_unit)
 
-    # partition derivative loop nests for same fields.
-    for loop_nest in sorted(
-        {
-            insn.within_inames
-            for insn in t_unit.default_entrypoint.instructions
-            if not isinstance(insn, lp.BarrierInstruction)
-        },
-        key=sorted,
-    ):
-        within = lp_match.And(tuple(lp_match.Iname(iname) for iname in loop_nest))
-        batched_einsum, _ = fnsm.get_a_matched_einsum(
-            t_unit,
-            insn_match=within,
-            long_dim_length=36,
-        )
-
-        if _is_derivative_einsum(batched_einsum):
-            from .batched_derivative_einsum_transforms import (
-                split_batched_derivative_einsum_into_single_field_derivative,
-            )
-
-            t_unit = split_batched_derivative_einsum_into_single_field_derivative(
-                t_unit, insn_match=within
-            )
-
     # use feinsum to transform batched einsums or fallback to libparanumal transform
     for loop_nest in sorted(
         {
@@ -180,20 +162,13 @@ def transform_batched_einsum_loop_nests(
         try:
             # known bad performing transforms.
             banned_transform_ids: set[str] = set()
-            if _is_facemass_einsum(batched_einsum):
-                # ifj_fe_fej_to_ei chunks across the batch of einsum ->
-                # prohibiting data sharing across the flux terms. Instead,
-                # prefer transform spaces that avoid chunking across these
-                # batch.
-                banned_transform_ids.add("ifj_fe_fej_to_ei.py")
-                if batched_einsum.shape[-1] in {10, 35}:
-                    # empirically observed to be bad performing.
-                    banned_transform_ids.add("ifj_fe_fej_to_ei_v3.py")
+            assert (
+                _is_facemass_einsum(batched_einsum)
+                or _is_divergence_einsum(batched_einsum)
+                or _is_derivative_einsum(batched_einsum)
+            ), f"{batched_einsum}"
 
-            if _is_divergence_einsum(batched_einsum) and batched_einsum.b > 1:
-                # Similar to ifj_fe_fej_to_ei, batched_xre_rij_xej_to_ei chunks
-                # across the batch -> prohibits data reuse -> avoid using it.
-                banned_transform_ids.add("batched_xre_rij_xej_to_ei.py")
+            banned_transform_ids.add("jfi_fe_fej_to_ei.py")
 
             transform = fnsm.retrieve(
                 batched_einsum,
