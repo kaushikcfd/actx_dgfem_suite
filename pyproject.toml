@@ -49,7 +49,8 @@ preview = true
 line-length = 85
 exclude = [
     "actx_dgfem_suite/suite/*", # auto-generated code -> better to avoid linting
-    "actx_dgfem_suite/suite_generators/cns.py" # pulls lots of deps (mirgecom, etc.) -> better to just avoid it
+    "actx_dgfem_suite/suite_generators/cns.py", # pulls lots of deps (mirgecom, etc.) -> better to just avoid it
+    "assets/*",
 ]
 
 [tool.ruff.lint]
