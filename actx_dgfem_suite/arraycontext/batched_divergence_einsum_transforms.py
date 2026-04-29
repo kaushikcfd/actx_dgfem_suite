@@ -31,13 +31,13 @@ def _get_divergenrce_op_params(
         for arg in einsum.args[0]
         if not any(isinstance(s, SizeParam) for s in arg.shape)
     ]
-    nr, ni, nj = mat.shape
+    nr, nj, ni = mat.shape
     nx = nr
 
     ref_einsum = fnsm.einsum(
-        "xre,rij,xej->ei",
+        "xre,rji,xej->ei",
         fnsm.array("J", (nx, nr, "Ne"), mat.dtype),
-        fnsm.array("M", (nr, ni, nj), mat.dtype),
+        fnsm.array("M", (nr, nj, ni), mat.dtype),
         fnsm.array("u", (nx, "Ne", nj), mat.dtype),
     )
     assert fnsm.canonicalize_einsum(einsum) == fnsm.canonicalize_einsum(ref_einsum)
@@ -65,9 +65,9 @@ def transform_single_divergence_einsum(
     within = lp_match.parse_match(insn_match)
     nx, nr, ni, nj, dtype = _get_divergenrce_op_params(t_unit, kernel_name, within)
     ref_einsum = fnsm.einsum(
-        "xre,rij,xej->ei",
+        "xre,rji,xej->ei",
         fnsm.array("J", (nx, nr, "Ne"), dtype),
-        fnsm.array("M", (nr, ni, nj), dtype),
+        fnsm.array("M", (nr, nj, ni), dtype),
         fnsm.array("u", (nx, "Ne", nj), dtype),
     )
 

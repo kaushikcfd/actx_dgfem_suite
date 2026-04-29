@@ -32,6 +32,10 @@ from actx_dgfem_suite.arraycontext.no_fusion_actx import (
 from actx_dgfem_suite.arraycontext.push_einsum_indices import (
     push_einsum_indices_to_operands,
 )
+from actx_dgfem_suite.arraycontext.transpose_consts_in_einsums import (
+    transpose_deriv_matrix_in_grad_and_div,
+    transpose_lift_matrix_in_facemass,
+)
 
 
 class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
@@ -65,6 +69,8 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = pt.rewrite_einsums_with_no_broadcasts(dag)
         dag = pt.push_index_to_materialized_nodes(dag)
         dag = fold_constants_in_einsum_indirections(dag, self.comptime_actx)
+        dag = transpose_lift_matrix_in_facemass(dag, self.comptime_actx)
+        dag = transpose_deriv_matrix_in_grad_and_div(dag, self.comptime_actx)
         dag = pt.transform.deduplicate_data_wrappers(dag)
         dag = dedup_datawrappers_having_same_value(dag, self.comptime_actx)
         dag = propagate_einsum_axes_tags(dag)

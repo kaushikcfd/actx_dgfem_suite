@@ -35,11 +35,11 @@ def _get_derivative_op_params(
     )
     (mat,) = [arg for arg in einsum.args[0] if arg.ndim == 3]
     nr = mat.shape[0]
-    nj = mat.shape[2]
+    nj = mat.shape[1]
     ref_einsum = fnsm.einsum(
-        "re,rij,ej->ei",
+        "re,rji,ej->ei",
         fnsm.array("J", (nr, "Ne"), mat.dtype),
-        fnsm.array("M", (nr, ni, nj), mat.dtype),
+        fnsm.array("M", (nr, nj, ni), mat.dtype),
         fnsm.array("u", ("Ne", nj), mat.dtype),
     )
 
@@ -56,9 +56,9 @@ def _get_field_variable(
         t_unit, kernel_name, lp_match.Id(insn_id)
     )
     ref_einsum = fnsm.einsum(
-        "re,rij,ej->ei",
+        "re,rji,ej->ei",
         fnsm.array("J", (nr, "Ne"), dtype),
-        fnsm.array("M", (nr, ni, nj), dtype),
+        fnsm.array("M", (nr, nj, ni), dtype),
         fnsm.array("u", ("Ne", nj), dtype),
     )
     sigma = fnsm.identify_as_einsum(
@@ -111,11 +111,11 @@ def transform_single_field_derivatives_einsum(
     b, nr, ni, nj, dtype = _get_derivative_op_params(t_unit, kernel_name, within)
 
     ref_einsum = fnsm.batched_einsum(
-        "re,rij,ej->ei",
+        "re,rji,ej->ei",
         [
             [
                 fnsm.array(f"J_{i}", (nr, "Ne"), dtype),
-                fnsm.array("D", (nr, ni, nj), dtype),
+                fnsm.array("D", (nr, nj, ni), dtype),
                 fnsm.array("u", ("Ne", nj), dtype),
             ]
             for i in range(b)
