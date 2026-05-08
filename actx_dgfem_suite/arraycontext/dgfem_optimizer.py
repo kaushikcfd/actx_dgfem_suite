@@ -3,6 +3,9 @@ from functools import cached_property
 import loopy as lp
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
+from arraycontext.typing import (
+    ArrayOrContainerOrScalarT,
+)
 from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext.batched_einsum_loop_transforms import (
@@ -51,6 +54,22 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
     def comptime_actx(self) -> PytatoPyOpenCLArrayContext:
         return NoFusionPytatoPyOpenCLActx(self.queue, self.allocator)
 
+    # {{{ use comptime_actx.transform_dag to transform the DAG
+
+    @override
+    def freeze(self, array: ArrayOrContainerOrScalarT) -> ArrayOrContainerOrScalarT:
+        return self.comptime_actx.freeze(array)
+
+    @override
+    def freeze_thaw(
+        self, array: ArrayOrContainerOrScalarT
+    ) -> ArrayOrContainerOrScalarT:
+        return self.comptime_actx.freeze_thaw(  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
+            array
+        )
+
+    # }}}
+
     @override
     def transform_dag(
         self, dag: pt.AbstractResultWithNamedArrays
@@ -62,11 +81,11 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
             return self.comptime_actx.transform_dag(dag)
 
         assert isinstance(dag, pt.DictOfNamedArrays)
+        dag = pt.rewrite_einsums_with_no_broadcasts(dag)
         dag = apply_distributive_law_to_mass_inverse(dag)
         dag = push_einsum_indices_to_operands(dag)
         dag = fuse_mass_inverses(dag)
         dag = materialize_for_dgfem_opt(dag)
-        dag = pt.rewrite_einsums_with_no_broadcasts(dag)
         dag = pt.push_index_to_materialized_nodes(dag)
         dag = fold_constants_in_einsum_indirections(dag, self.comptime_actx)
         dag = transpose_lift_matrix_in_facemass(dag, self.comptime_actx)

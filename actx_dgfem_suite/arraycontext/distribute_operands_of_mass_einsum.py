@@ -2,8 +2,8 @@ import pytato as pt
 
 
 def apply_distributive_law_to_mass_inverse(
-    expr: pt.DictOfNamedArrays,
-) -> pt.AbstractResultWithNamedArrays:
+    expr: pt.transform.ArrayOrNamesTc,
+) -> pt.transform.ArrayOrNamesTc:
     from pytato.transform.einsum_distributive_law import (
         DoDistribute,
         DoNotDistribute,
