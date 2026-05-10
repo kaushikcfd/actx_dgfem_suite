@@ -17,7 +17,7 @@ dependencies:
     - git+https://github.com/inducer/pymbolic.git
     - git+https://github.com/inducer/loopy.git
     - git+https://github.com/inducer/pytato.git@indirection_pusher
-    - git+https://github.com/inducer/arraycontext.git
+    - git+https://github.com/inducer/arraycontext.git@some_fixes_to_pyopencl_actx
     - git+https://github.com/inducer/meshmode.git
     - git+https://github.com/inducer/modepy.git
     - git+https://github.com/inducer/grudge.git
