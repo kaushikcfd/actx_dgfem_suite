@@ -56,6 +56,10 @@ from pytools.obj_array import flat, new_1d
 from tabulate import tabulate
 
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
+from actx_dgfem_suite.utils import (
+    get_ndof_for_regular_rect_mesh,
+    get_nel_1d_for_regular_rect_mesh,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -68,31 +72,8 @@ def stringify_dofs_per_s(dofs_per_s: float) -> str:
         return f"{dofs_per_s * 1e-9:.3f}"
 
 
-def get_nunit_dofs(*, dim: int, degree: int) -> int:
-    if dim == 3:
-        if degree == 1:
-            return 4
-        elif degree == 2:
-            return 10
-        elif degree == 3:
-            return 20
-        elif degree == 4:
-            return 35
-        else:
-            raise NotImplementedError
-    else:
-        raise NotImplementedError
-
-
-def get_actual_scalar_ndofs(*, ndofs: int, degree: int, dim: int) -> int:
-    from math import ceil
-
-    nunit_dofs = get_nunit_dofs(dim=dim, degree=degree)
-    nel_1d = ceil(cast("float", ((ndofs / nunit_dofs) / 6) ** (1 / 3)))
-    return 6 * (nel_1d**3) * nunit_dofs
-
-
 # {{{ wave eqution bits
+
 
 @with_container_arithmetic(
     bcasts_across_obj_array=True,
@@ -266,29 +247,14 @@ def get_wave_rhs(
     dim: int,
     order: int,
     ndofs: int,
-    use_nonaffine_mesh: bool = False,
 ) -> tuple[Callable[[WaveState], ArrayOrContainer], WaveState]:
-    from math import ceil
+    nel_1d = get_nel_1d_for_regular_rect_mesh(dim=dim, order=order, ndofs=int(ndofs))
 
-    nunit_dofs = get_nunit_dofs(dim=dim, degree=order)
+    from meshmode.mesh.generation import generate_regular_rect_mesh
 
-    nel_1d = ceil(cast("float", ((ndofs / nunit_dofs) / 6) ** (1 / 3)))
-    assert (6 * (nel_1d**3) * nunit_dofs) == ndofs
-
-    if use_nonaffine_mesh:
-        from meshmode.mesh.generation import generate_warped_rect_mesh
-
-        # FIXME: *generate_warped_rect_mesh* in meshmode warps a
-        # rectangle domain with hard-coded vertices at (-0.5,)*dim
-        # and (0.5,)*dim. Should extend the function interface to allow
-        # for specifying the end points directly.
-        mesh = generate_warped_rect_mesh(dim=dim, order=order, nelements_side=nel_1d)
-    else:
-        from meshmode.mesh.generation import generate_regular_rect_mesh
-
-        mesh = generate_regular_rect_mesh(
-            a=(-0.5,) * dim, b=(0.5,) * dim, nelements_per_axis=(nel_1d,) * dim
-        )
+    mesh = generate_regular_rect_mesh(
+        a=(-0.5,) * dim, b=(0.5,) * dim, nelements_per_axis=(nel_1d,) * dim
+    )
 
     logger.info("%d elements", mesh.nelements)
 
@@ -318,22 +284,12 @@ def get_wave_rhs(
 
     c = 1
 
-    # FIXME: Sketchy, empirically determined fudge factor
-    # 5/4 to account for larger LSRK45 stability region
-    dt = 1e-3
-
-    def rhs(t: float, w: WaveState) -> ArrayOrContainer:
+    def rhs(w: WaveState) -> ArrayOrContainer:
         return wave_operator(actx, dcoll, c=c, w=w, quad_tag=quad_tag)
 
-    logger.info("dt = %g", dt)
-
-    t = np.float64(0.5)
     fields = actx.freeze_thaw(fields)
 
-    def rhs_callable(x: WaveState) -> ArrayOrContainer:
-        return rhs(t, x)
-
-    return rhs_callable, fields
+    return rhs, fields
 
 
 # }}}
@@ -343,19 +299,22 @@ def main(
     dim: int,
     degrees: Sequence[int],
 ):
-    from actx_dgfem_suite.measure import _instantiate_actx_t
+    from actx_dgfem_suite.measure import _instantiate_actx_t, finish_command_queue
 
-    ndofs_list = [0.5e6, 1e6, 2e6, 3e6, 4e6, 6e6]
+    ndofs_list = [2e6, 3e6, 4e6, 5e6, 6e6]
     dof_throughput = np.empty([len(degrees), len(ndofs_list)])
 
     for i_degree, degree in enumerate(degrees):
         for i_ndofs, ndofs in enumerate(ndofs_list):
+            import gc
+
+            gc.collect()
             actx = _instantiate_actx_t(DGFEMOptimizerArrayContext)
-            actual_scalar_ndofs = get_actual_scalar_ndofs(
-                ndofs=int(ndofs), degree=degree, dim=dim
-            )
             rhs_clbl, rhs_args = get_wave_rhs(
-                actx=actx, dim=dim, order=degree, ndofs=actual_scalar_ndofs
+                actx=actx,
+                dim=dim,
+                order=degree,
+                ndofs=int(ndofs),
             )
             compiled_rhs_clbl = actx.compile(
                 rhs_clbl  # pyright: ignore[reportArgumentType]
@@ -366,9 +325,11 @@ def main(
             i_warmup = 0
             t_warmup = 0
 
-            while i_warmup < 20 and t_warmup < 2:
+            while i_warmup < 5 and t_warmup < 2:
+                finish_command_queue(actx)
                 t_start = time()
                 compiled_rhs_clbl(rhs_args)
+                finish_command_queue(actx)
                 t_end = time()
                 t_warmup += t_end - t_start
                 i_warmup += 1
@@ -380,31 +341,41 @@ def main(
             i_timing = 0
             t_rhs = 0
 
-            while i_timing < 100 and t_rhs < 5:
+            while i_timing < 50 and t_rhs < 5:
 
+                finish_command_queue(actx)
                 t_start = time()
-                for _ in range(40):
+                for _ in range(3):
                     compiled_rhs_clbl(rhs_args)
+                finish_command_queue(actx)
                 t_end = time()
 
                 t_rhs += t_end - t_start
-                i_timing += 40
+                i_timing += 3
 
             # }}}
 
             # Multiplying by "(dim + 1)" to account for DOFs for all fields
+            actual_ndofs = get_ndof_for_regular_rect_mesh(
+                dim,
+                degree,
+                get_nel_1d_for_regular_rect_mesh(dim, degree, int(ndofs)),
+            )
             dof_throughput[i_degree, i_ndofs] = (
-                actual_scalar_ndofs * (dim + 1) * i_timing
+                (actual_ndofs) * (dim + 1) * i_timing
             ) / t_rhs
+            print(
+                "GDOFs/s for "
+                f"{(degree, ndofs)} = {dof_throughput[i_degree, i_ndofs] * 1e-9}"
+            )
 
+            del rhs_clbl
+            del rhs_args
+            del compiled_rhs_clbl
             del actx
-            import gc
-
             gc.collect()
 
-    print(
-        f"GDOFS/s for {dim}D-wave for:"
-    )
+    print(f"GDOFS/s for {dim}D-wave for:")
     table: list[list[str]] = []
     for i_degree, degree in enumerate(degrees):
         table.append(
@@ -422,7 +393,7 @@ def main(
         tabulate(
             table,
             tablefmt="fancy_grid",
-            headers=[""] + [str(ndofs) for ndofs in ndofs_list],
+            headers=[""] + [f"{ndofs / 1e6}M" for ndofs in ndofs_list],
         )
     )
 
