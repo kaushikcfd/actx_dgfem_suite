@@ -183,7 +183,7 @@ def split_iteration_domain_across_work_items(
 
     all_loop_nests = frozenset(insn_id_to_loop_nest.values())
 
-    for loop_nest in all_loop_nests:
+    for loop_nest in sorted(all_loop_nests, key=lambda k: sorted(k.inames)):
         kernel = _split_loop_nest_across_work_items(
             kernel, loop_nest, iname_to_length, cl_device
         )
@@ -231,9 +231,8 @@ def _get_call_kernel_insn_ids(kernel: lp.LoopKernel) -> tuple[frozenset[str], ..
             if insn_loop_nest != dep_loop_nest:
                 loop_nest_dep_graph[dep_loop_nest].add(insn_loop_nest)
 
-    # TODO: pass 'key' to compute_topological_order to ensure deterministic result
     toposorted_loop_nests: list[_LoopNest] = compute_topological_order(
-        loop_nest_dep_graph
+        loop_nest_dep_graph, lambda loop_nest: sorted(loop_nest.inames)
     )
 
     return tuple(loop_nest.insns_in_loop_nest for loop_nest in toposorted_loop_nests)
@@ -271,6 +270,130 @@ def add_gbarrier_between_disjoint_loop_nests(
 # }}}
 
 
+# {{{ global temp var aliasing for disjoint live intervals
+
+
+def alias_global_temporaries(t_unit: lp.TranslationUnit) -> lp.TranslationUnit:
+    """
+    Returns a copy of *t_unit* with temporaries of that have disjoint live
+    intervals using the same :attr:`loopy.TemporaryVariable.base_storage`.
+
+    .. warning::
+
+        This routine **assumes** that the entrypoint in *t_unit* global
+        barriers inserted as per :func:`_get_call_kernel_insn_ids`.
+    """
+
+    from collections import defaultdict
+
+    from loopy.kernel.data import AddressSpace
+    from pytools import UniqueNameGenerator
+
+    t_unit = lp.infer_unknown_types(t_unit)
+
+    # all loopy programs from pytato DAGs have exactly one entrypoint.
+    kernel = t_unit.default_entrypoint
+
+    temp_vars = frozenset(
+        tv.name
+        for tv in kernel.temporary_variables.values()
+        if tv.address_space == AddressSpace.GLOBAL
+    )
+
+    call_kernel_insn_ids = _get_call_kernel_insn_ids(kernel)
+    expanded_kernel = lp.expand_subst(kernel)
+    temp_to_live_interval_start: dict[str, int] = {}
+    temp_to_live_interval_end: dict[str, int] = {}
+
+    for icall_kernel, insn_ids in enumerate(call_kernel_insn_ids):
+        for insn_id in insn_ids:
+            for var in (
+                expanded_kernel.id_to_insn[insn_id].dependency_names() & temp_vars
+            ):
+                if var not in temp_to_live_interval_start:
+                    assert var not in temp_to_live_interval_end
+                    temp_to_live_interval_start[var] = icall_kernel
+                assert var in temp_to_live_interval_start
+                temp_to_live_interval_end[var] = icall_kernel
+
+    vng = UniqueNameGenerator()
+
+    # {{{ get mappings from icall_kernel to temps that are just alive or dead
+
+    icall_kernel_to_just_live_temp_vars: list[set[str]] = [
+        set() for _ in call_kernel_insn_ids
+    ]
+    icall_kernel_to_just_dead_temp_vars: list[set[str]] = [
+        set() for _ in call_kernel_insn_ids
+    ]
+
+    for tv_name, just_alive_idx in temp_to_live_interval_start.items():
+        icall_kernel_to_just_live_temp_vars[just_alive_idx].add(tv_name)
+
+    for tv_name, just_dead_idx in temp_to_live_interval_end.items():
+        if just_dead_idx != (len(call_kernel_insn_ids) - 1):
+            # we ignore the temporaries that died at the last kernel since we cannot
+            # reclaim their memory
+            icall_kernel_to_just_dead_temp_vars[just_dead_idx + 1].add(tv_name)
+
+    # }}}
+
+    new_tvs: dict[str, lp.TemporaryVariable] = {}
+    # a mapping from shape to the available base storages from temp variables
+    # that were dead.
+    shape_to_available_base_storage: dict[int, set[str]] = defaultdict(set)
+
+    for icall_kernel, _ in enumerate(call_kernel_insn_ids):
+        just_dead_temps = icall_kernel_to_just_dead_temp_vars[icall_kernel]
+        to_be_allocated_temps = icall_kernel_to_just_live_temp_vars[icall_kernel]
+
+        # reclaim base storage from the dead temporaries
+        for tv_name in sorted(just_dead_temps):
+            tv = new_tvs[tv_name]
+            assert isinstance(tv.nbytes, int)
+            assert tv.base_storage is not None
+            assert tv.base_storage not in shape_to_available_base_storage[tv.nbytes]
+            shape_to_available_base_storage[tv.nbytes].add(tv.base_storage)
+
+        # assign base storages to 'to_be_allocated_temps'
+        for tv_name in sorted(to_be_allocated_temps):
+            tv = kernel.temporary_variables[tv_name]
+            assert tv.name not in new_tvs
+            assert tv.base_storage is None
+            assert isinstance(tv.nbytes, int)
+            if shape_to_available_base_storage[tv.nbytes]:
+                base_storage = sorted(shape_to_available_base_storage[tv.nbytes])[0]
+                shape_to_available_base_storage[tv.nbytes].remove(base_storage)
+            else:
+                base_storage = vng("_actx_tmp_base")
+
+            new_tvs[tv.name] = tv.copy(base_storage=base_storage)
+
+    for name, tv in kernel.temporary_variables.items():
+        if tv.address_space != AddressSpace.GLOBAL:
+            new_tvs[name] = tv
+
+    kernel = kernel.copy(temporary_variables=new_tvs)
+
+    # old_tmp_mem_requirement = sum(
+    #     tv.nbytes
+    #     for tv in kernel.temporary_variables.values())
+    # new_tmp_mem_requirement = sum(
+    #     {tv.base_storage: tv.nbytes
+    #      for tv in kernel.temporary_variables.values()}.values())
+    # logger.info(
+    #     "[alias_global_temporaries]: Reduced memory requirement from "
+    #     f"{old_tmp_mem_requirement*1e-6:.1f}MB to"
+    #     f" {new_tmp_mem_requirement*1e-6:.1f}MB.")
+
+    t_unit = t_unit.with_kernel(kernel)
+    t_unit = lp.allocate_temporaries_for_base_storage(t_unit, lp.AddressSpace.GLOBAL)
+    return t_unit
+
+
+# }}}
+
+
 class NoFusionPytatoPyOpenCLActx(PytatoPyOpenCLArrayContext):
     @override
     def transform_dag(
@@ -293,4 +416,6 @@ class NoFusionPytatoPyOpenCLActx(PytatoPyOpenCLArrayContext):
         self, t_unit: lp.TranslationUnit
     ) -> lp.TranslationUnit:
         t_unit = split_iteration_domain_across_work_items(t_unit, self.queue.device)
-        return add_gbarrier_between_disjoint_loop_nests(t_unit)
+        t_unit = add_gbarrier_between_disjoint_loop_nests(t_unit)
+        t_unit = alias_global_temporaries(t_unit)
+        return t_unit
