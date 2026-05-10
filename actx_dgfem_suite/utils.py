@@ -120,3 +120,34 @@ def get_nel_1d_for_regular_rect_mesh(dim: int, order: int, ndofs: int) -> int:
         raise NotImplementedError
 
     return int(nel_1d)
+
+
+def get_ndof_for_regular_rect_mesh(dim: int, order: int, nel_1d: int) -> int:
+    if dim == 3:
+        nel = 6 * nel_1d * nel_1d * nel_1d
+        if order == 1:
+            ndofs = nel * 6
+        elif order == 2:
+            ndofs = nel * 10
+        elif order == 3:
+            ndofs = nel * 20
+        elif order == 4:
+            ndofs = nel * 35
+        else:
+            raise NotImplementedError(order)
+    elif dim == 2:
+        nel = 2 * nel_1d * nel_1d
+        if order == 1:
+            ndofs = nel * 3
+        elif order == 2:
+            ndofs = nel * 6
+        elif order == 3:
+            ndofs = nel * 10
+        elif order == 4:
+            ndofs = nel * 15
+        else:
+            raise NotImplementedError(order)
+    else:
+        raise NotImplementedError
+
+    return ndofs
