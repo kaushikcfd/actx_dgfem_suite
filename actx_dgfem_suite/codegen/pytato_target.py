@@ -311,7 +311,10 @@ class ArraycontextCodegenMapper(CachedMapper[str, Never, []]):
                                 elts=[
                                     self._get_tag_expr(tag)
                                     for tag in expr.tags
-                                    if tag.__class__.__name__ not in ["NameHint"]
+                                    if (
+                                        tag.__class__.__name__
+                                        not in ["NameHint", "IncomingEisumTag"]
+                                    )
                                 ]
                             ),
                             ast.Name(lhs),
@@ -359,6 +362,7 @@ class ArraycontextCodegenMapper(CachedMapper[str, Never, []]):
             BroadcastOp,
             FullOp,
             ReduceOp,
+            TypeCastOp,
             WhereOp,
             index_lambda_to_high_level_op,
         )
@@ -584,6 +588,30 @@ class ArraycontextCodegenMapper(CachedMapper[str, Never, []]):
                     ast.Constant("out"),
                 ),
             )
+        elif isinstance(hlo, TypeCastOp):
+            if isinstance(hlo.x, Array):
+                rhs = ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(self.rec(hlo.x)),
+                        attr="astype",
+                    ),
+                    args=[
+                        ast.Attribute(
+                            ast.Name(self.numpy),
+                            hlo.dtype.type.__name__,
+                        )
+                    ],
+                    keywords=[],
+                )
+            else:
+                rhs = ast.Call(
+                    func=ast.Attribute(
+                        ast.Name(self.numpy),
+                        hlo.dtype.type.__name__,
+                    ),
+                    args=[_rec_ary_or_constant(hlo.x)],
+                    keywords=[],
+                )
         elif isinstance(hlo, ReduceOp):
             if type(hlo.op) not in PYTATO_REDUCTION_TO_NP_REDUCTION:
                 raise NotImplementedError(hlo.op)
@@ -997,6 +1025,10 @@ def generate_arraycontext_code(
                         ast.keyword(
                             "shape",
                             ast.Tuple(elts=_shape_to_ast_elts(arg_shape)),
+                        ),
+                        ast.keyword(
+                            "offset",
+                            ast.Attribute(ast.Name("lp"), "auto"),
                         ),
                     ],
                 )
