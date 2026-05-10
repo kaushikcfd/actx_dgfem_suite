@@ -175,7 +175,7 @@ def get_flop_rate(
 
     # }}}
 
-    # {{{ warmup rounds
+    # {{{ timing rounds
 
     i_timing = 0
     t_rhs = 0
