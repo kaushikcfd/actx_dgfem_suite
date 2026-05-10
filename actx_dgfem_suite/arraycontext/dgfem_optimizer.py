@@ -3,9 +3,7 @@ from functools import cached_property
 import loopy as lp
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
-from arraycontext.typing import (
-    ArrayOrContainerOrScalarT,
-)
+from arraycontext.typing import ArrayOrContainerOrScalarT
 from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext.batched_einsum_loop_transforms import (
@@ -16,6 +14,9 @@ from actx_dgfem_suite.arraycontext.constants_folder import (
 )
 from actx_dgfem_suite.arraycontext.deduplicate_by_value import (
     dedup_datawrappers_having_same_value,
+)
+from actx_dgfem_suite.arraycontext.dgfem_optimizer_freeze_actx import (
+    FreezeDGFEMExpressionArrayContext,
 )
 from actx_dgfem_suite.arraycontext.distribute_operands_of_mass_einsum import (
     apply_distributive_law_to_mass_inverse,
@@ -28,9 +29,6 @@ from actx_dgfem_suite.arraycontext.materialization_policy import (
     make_einsum_operands_as_subst,
     materialize_for_dgfem_opt,
     propagate_einsum_axes_tags,
-)
-from actx_dgfem_suite.arraycontext.no_fusion_actx import (
-    NoFusionPytatoPyOpenCLActx,
 )
 from actx_dgfem_suite.arraycontext.push_einsum_indices import (
     push_einsum_indices_to_operands,
@@ -51,22 +49,14 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
     """
 
     @cached_property
-    def comptime_actx(self) -> PytatoPyOpenCLArrayContext:
-        return NoFusionPytatoPyOpenCLActx(self.queue, self.allocator)
+    def freeze_actx(self) -> FreezeDGFEMExpressionArrayContext:
+        return FreezeDGFEMExpressionArrayContext(self.queue, self.allocator)
 
-    # {{{ use comptime_actx.transform_dag to transform the DAG
+    # {{{ use freeze_actx to interpret the ops in the DAG
 
     @override
     def freeze(self, array: ArrayOrContainerOrScalarT) -> ArrayOrContainerOrScalarT:
-        return self.comptime_actx.freeze(array)
-
-    @override
-    def freeze_thaw(
-        self, array: ArrayOrContainerOrScalarT
-    ) -> ArrayOrContainerOrScalarT:
-        return self.comptime_actx.freeze_thaw(  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
-            array
-        )
+        return self.freeze_actx.freeze(array)
 
     # }}}
 
@@ -74,11 +64,10 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
     def transform_dag(
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
-
         if pt.analysis.get_num_nodes(dag) < 10:
             # FIXME: This is only for debugging purposes, remove this once
             # everything is finalized.
-            return self.comptime_actx.transform_dag(dag)
+            return self.freeze_actx.transform_dag(dag)
 
         assert isinstance(dag, pt.DictOfNamedArrays)
         dag = pt.rewrite_einsums_with_no_broadcasts(dag)
@@ -87,11 +76,11 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = fuse_mass_inverses(dag)
         dag = materialize_for_dgfem_opt(dag)
         dag = pt.push_index_to_materialized_nodes(dag)
-        dag = fold_constants_in_einsum_indirections(dag, self.comptime_actx)
-        dag = transpose_lift_matrix_in_facemass(dag, self.comptime_actx)
-        dag = transpose_deriv_matrix_in_grad_and_div(dag, self.comptime_actx)
+        dag = fold_constants_in_einsum_indirections(dag, self.freeze_actx)
+        dag = transpose_lift_matrix_in_facemass(dag, self.freeze_actx)
+        dag = transpose_deriv_matrix_in_grad_and_div(dag, self.freeze_actx)
         dag = pt.transform.deduplicate_data_wrappers(dag)
-        dag = dedup_datawrappers_having_same_value(dag, self.comptime_actx)
+        dag = dedup_datawrappers_having_same_value(dag, self.freeze_actx)
         dag = propagate_einsum_axes_tags(dag)
         return make_einsum_operands_as_subst(dag)
 
@@ -110,7 +99,7 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
             tv.tags_of_type(IncomingEisumTag)
             for tv in t_unit.default_entrypoint.temporary_variables.values()
         ):
-            return self.comptime_actx.transform_loopy_program(t_unit)
+            raise NotImplementedError
 
         # Make offsets as 0. (FIXME: move this to loopy knl invocation)
         # -----------------------------------------------------------------------

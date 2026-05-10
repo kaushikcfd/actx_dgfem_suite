@@ -942,7 +942,7 @@ def generate_arraycontext_code(
     var_name_gen.add_names({"actx", "npzfile", "np", "make_obj_array", "lp"})
 
     cgen_mapper = ArraycontextCodegenMapper(actx, vng=var_name_gen)
-    result_var = cast("str", cast("object", cgen_mapper(expr)))
+    result_var = cgen_mapper(expr)
 
     lines = cgen_mapper.lines
     lines.append(ast.Return(ast.Name(result_var)))
