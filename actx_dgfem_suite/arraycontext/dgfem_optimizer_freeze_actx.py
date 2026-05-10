@@ -118,7 +118,7 @@ class _PyOpenCLFreezeEvalArrayContext(PyOpenCLArrayContext):
     def transform_loopy_program(
         self, t_unit: lp.TranslationUnit
     ) -> lp.TranslationUnit:  # type: ignore[no-untyped-def]
-        from actx_dgfem_suite.arraycontext.no_fusion_actx import (
+        from actx_dgfem_suite.arraycontext.split_iteration_domains import (
             split_iteration_domain_across_work_items,
         )
 

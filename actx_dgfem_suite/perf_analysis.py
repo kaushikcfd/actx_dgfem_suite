@@ -88,14 +88,14 @@ class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
     def transform_loopy_program(
         self, t_unit: lp.TranslationUnit
     ) -> lp.TranslationUnit:
+        from actx_dgfem_suite.arraycontext.disjoint_loop_nest_barriers import (
+            add_gbarrier_between_disjoint_loop_nests,
+        )
         from actx_dgfem_suite.arraycontext.kennedy_loop_fusion import (
             apply_kennedy_loop_fusion_for_einsum_tags,
         )
         from actx_dgfem_suite.arraycontext.metadata import (
             IncomingEisumTag,
-        )
-        from actx_dgfem_suite.arraycontext.no_fusion_actx import (
-            add_gbarrier_between_disjoint_loop_nests,
         )
 
         if not any(
