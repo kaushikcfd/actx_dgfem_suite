@@ -252,7 +252,7 @@ class FreezeDGFEMExpressionArrayContext(PytatoPyOpenCLArrayContext):
                 k: to_tagged_cl_array(
                     (
                         v.with_queue(None)
-                        if v.flags.c_contiguous
+                        if (v.flags.c_contiguous and v.offset == 0)
                         else self.freeze_eval_actx.call_loopy(
                             self.freeze_eval_actx._get_to_numpy_noncontiguous_copy_kernel(
                                 v.dtype, v.ndim
