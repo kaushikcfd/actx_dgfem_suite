@@ -1,6 +1,5 @@
-from functools import cached_property
-
 import loopy as lp
+import pyopencl.tools as cl_tools
 import pytato as pt
 from arraycontext import PytatoPyOpenCLArrayContext
 from arraycontext.typing import ArrayOrContainerOrScalarT
@@ -48,9 +47,11 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
     See paper (TODO) for details.
     """
 
-    @cached_property
+    @property
     def freeze_actx(self) -> FreezeDGFEMExpressionArrayContext:
-        return FreezeDGFEMExpressionArrayContext(self.queue, self.allocator)
+        return FreezeDGFEMExpressionArrayContext(
+            self.queue, cl_tools.MemoryPool(cl_tools.ImmediateAllocator(self.queue))
+        )
 
     # {{{ use freeze_actx to interpret the ops in the DAG
 
@@ -76,13 +77,17 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = fuse_mass_inverses(dag)
         dag = materialize_for_dgfem_opt(dag)
         dag = pt.push_index_to_materialized_nodes(dag)
+        dag = pt.transform.deduplicate_data_wrappers(dag)
+        dag = dedup_datawrappers_having_same_value(dag, self.freeze_actx)
         dag = fold_constants_in_einsum_indirections(dag, self.freeze_actx)
         dag = transpose_lift_matrix_in_facemass(dag, self.freeze_actx)
         dag = transpose_deriv_matrix_in_grad_and_div(dag, self.freeze_actx)
         dag = pt.transform.deduplicate_data_wrappers(dag)
         dag = dedup_datawrappers_having_same_value(dag, self.freeze_actx)
         dag = propagate_einsum_axes_tags(dag)
-        return make_einsum_operands_as_subst(dag)
+        dag = make_einsum_operands_as_subst(dag)
+
+        return dag
 
     @override
     def transform_loopy_program(

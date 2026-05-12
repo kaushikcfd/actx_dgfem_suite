@@ -30,10 +30,11 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from time import time
-from typing import ClassVar, cast
+from typing import Any, ClassVar, cast
 
 import grudge.geometry as geom
 import numpy as np
+import pyopencl.tools as cl_tools
 from arraycontext import (
     ArrayContext,
     ArrayOrContainer,
@@ -301,7 +302,7 @@ def main(
 ):
     from actx_dgfem_suite.measure import _instantiate_actx_t, finish_command_queue
 
-    ndofs_list = [2e6, 3e6, 4e6, 5e6, 6e6]
+    ndofs_list = [0.5e6, 1e6, 2e6, 3e6, 4e6, 6e6, 7e6, 8e6]
     dof_throughput = np.empty([len(degrees), len(ndofs_list)])
 
     for i_degree, degree in enumerate(degrees):
@@ -325,6 +326,24 @@ def main(
             i_warmup = 0
             t_warmup = 0
 
+            compiled_rhs_clbl(rhs_args)
+            del compiled_rhs_clbl.f
+            del rhs_clbl
+
+            if isinstance(actx.allocator, cl_tools.MemoryPool):
+                gc.collect()
+                actx.queue.finish()
+                actx.allocator.free_held()
+                if hasattr(actx, "_pytools_memoize_in_dict"):
+                    cast(
+                        "dict[Any, Any]", actx._pytools_memoize_in_dict
+                    ).clear()
+                if hasattr(actx, "_pytools_keyed_memoize_in_dict"):
+                    cast(
+                        "dict[Any, Any]", actx._pytools_keyed_memoize_in_dict
+                    ).clear()
+                gc.collect()
+
             while i_warmup < 5 and t_warmup < 2:
                 finish_command_queue(actx)
                 t_start = time()
@@ -341,16 +360,17 @@ def main(
             i_timing = 0
             t_rhs = 0
 
-            while i_timing < 50 and t_rhs < 5:
-
+            while i_timing < 50 and t_rhs < 4:
                 finish_command_queue(actx)
                 t_start = time()
+
                 for _ in range(3):
                     compiled_rhs_clbl(rhs_args)
+
                 finish_command_queue(actx)
                 t_end = time()
 
-                t_rhs += t_end - t_start
+                t_rhs += (t_end - t_start)
                 i_timing += 3
 
             # }}}
@@ -361,15 +381,13 @@ def main(
                 degree,
                 get_nel_1d_for_regular_rect_mesh(dim, degree, int(ndofs)),
             )
-            dof_throughput[i_degree, i_ndofs] = (
-                (actual_ndofs) * (dim + 1) * i_timing
-            ) / t_rhs
-            print(
-                "GDOFs/s for "
-                f"{(degree, ndofs)} = {dof_throughput[i_degree, i_ndofs] * 1e-9}"
-            )
 
-            del rhs_clbl
+            print("Actual NDOFS = ", actual_ndofs * 1e-6)
+            dof_throughput[i_degree, i_ndofs] = ((actual_ndofs) * (dim + 1)) / (
+                t_rhs / i_timing
+            )
+            print(f"Avg time = {(1e3 * t_rhs / i_timing)}ms")
+
             del rhs_args
             del compiled_rhs_clbl
             del actx

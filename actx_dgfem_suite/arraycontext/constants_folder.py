@@ -15,6 +15,18 @@ def _can_be_folded(
 
 
 @memoize_on_first_arg
+def memoized_freeze_thaw(
+    actx: PytatoPyOpenCLArrayContext, ary: pt.Array
+) -> pt.Array:
+    assert isinstance(ary, pt.Array)
+    frozen_thawed_ary = actx.freeze_thaw(ary).without_tags(
+        pt.tags.ImplStored(), verify_existence=False
+    )
+
+    return frozen_thawed_ary
+
+
+@memoize_on_first_arg
 def memoized_ravel(actx: PytatoPyOpenCLArrayContext, ary: pt.Array) -> pt.Array:
     assert isinstance(ary, pt.Array)
     return ary.reshape(-1)
@@ -30,9 +42,7 @@ def _fold_constant_einsum_indirection_args(
         return expr.replace_if_different(
             args=tuple(  # pyright: ignore[reportUnknownArgumentType]
                 (  # pyright: ignore[reportUnknownArgumentType]
-                    actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType]
-                        arg
-                    ).without_tags(pt.tags.ImplStored(), verify_existence=False)
+                    memoized_freeze_thaw(actx, arg)
                     if (
                         _can_be_folded(arg, input_base_getter)
                         and (not isinstance(arg, pt.DataWrapper))
@@ -75,9 +85,8 @@ def _fold_constant_einsum_indirection_args(
             else raveled_idx
         )
         assert raveled_idx.dtype.kind == "u"
-        thawed_idx = actx.freeze_thaw(  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
-            raveled_idx
-        )
+        thawed_idx = memoized_freeze_thaw(actx, raveled_idx)
+
         assert isinstance(thawed_idx, pt.DataWrapper)
 
         return memoized_ravel(actx, expr.array)[
