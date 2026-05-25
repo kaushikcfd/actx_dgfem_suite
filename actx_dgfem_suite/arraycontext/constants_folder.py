@@ -19,7 +19,11 @@ def memoized_freeze_thaw(
     actx: PytatoPyOpenCLArrayContext, ary: pt.Array
 ) -> pt.Array:
     assert isinstance(ary, pt.Array)
-    frozen_thawed_ary = actx.freeze_thaw(ary).without_tags(
+    frozen_thawed_ary = actx.freeze_thaw(  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+        ary
+    )
+    assert isinstance(frozen_thawed_ary, pt.DataWrapper)
+    frozen_thawed_ary = frozen_thawed_ary.without_tags(
         pt.tags.ImplStored(), verify_existence=False
     )
 
@@ -40,8 +44,8 @@ def _fold_constant_einsum_indirection_args(
 ) -> pt.transform.ArrayOrNames:
     if isinstance(expr, pt.Einsum):
         return expr.replace_if_different(
-            args=tuple(  # pyright: ignore[reportUnknownArgumentType]
-                (  # pyright: ignore[reportUnknownArgumentType]
+            args=tuple(
+                (
                     memoized_freeze_thaw(actx, arg)
                     if (
                         _can_be_folded(arg, input_base_getter)

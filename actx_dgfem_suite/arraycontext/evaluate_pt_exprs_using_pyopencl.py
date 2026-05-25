@@ -25,8 +25,8 @@ THE SOFTWARE.
 """
 
 import keyword
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Never, overload
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Never, cast, overload
 
 import loopy as lp
 import numpy as np
@@ -53,6 +53,7 @@ from pytato.transform import ArrayOrNames, CachedMapper
 from pytato.transform.lower_to_index_lambda import to_index_lambda
 from pytato.utils import are_shapes_equal, get_einsum_specification
 from pytools import UniqueNameGenerator
+from typing_extensions import override
 
 if TYPE_CHECKING:
     import pytato as pt
@@ -118,6 +119,7 @@ def get_t_unit_for_index_lambda(expr: IndexLambda) -> lp.TranslationUnit:
                 str, tuple[pymbolic.typing.Expression, pymbolic.typing.Expression]
             ] = {}
 
+        @override
         def map_reduce(self, expr: Reduce) -> None:
             self.bounds.update(expr.bounds)
             super().map_reduce(expr)
@@ -182,7 +184,10 @@ class PyOpenCLEvaluator(
         actx: PyOpenCLArrayContext,
     ) -> None:
         super().__init__()
-        self.actx = actx
+        self.actx: PyOpenCLArrayContext = actx
+
+    def rec_ary(self, expr: Array) -> cla.Array:
+        return cast("cla.Array", self.rec(expr))
 
     @staticmethod
     def _sanitize_index_lambda_binding_names(expr: IndexLambda) -> IndexLambda:
@@ -215,7 +220,9 @@ class PyOpenCLEvaluator(
 
     def _eval_idx_lambda_using_lpy_kernel(self, expr: IndexLambda) -> cla.Array:
         expr = self._sanitize_index_lambda_binding_names(expr)
-        rec_bindings = {name: self.rec(bnd) for name, bnd in expr.bindings.items()}
+        rec_bindings = {
+            name: self.rec_ary(bnd) for name, bnd in expr.bindings.items()
+        }
         return self.actx.call_loopy(
             get_t_unit_for_index_lambda(expr), **rec_bindings
         )["out"]
@@ -239,7 +246,7 @@ class PyOpenCLEvaluator(
 
         def _rec_ary_or_scalar(arg: ArrayOrScalar) -> ArrayOrScalar | cla.Array:
             if isinstance(arg, Array):
-                return self.rec(arg)
+                return self.rec_ary(arg)
             return arg
 
         def _has_nonscalar_broadcast(*args: ArrayOrScalar) -> bool:
@@ -248,11 +255,16 @@ class PyOpenCLEvaluator(
 
         if isinstance(hlo, FullOp):
             if hlo.fill_value == 0:
-                return self.actx.np.zeros(expr.shape, expr.dtype)
+                return cast(
+                    "cla.Array",
+                    self.actx.np.zeros(
+                        cast("tuple[int, ...]", expr.shape), expr.dtype
+                    ),
+                )
 
             result = cla.empty(
                 self.actx.queue,
-                expr.shape,
+                cast("tuple[int, ...]", expr.shape),
                 expr.dtype,
                 allocator=self.actx.allocator,
             )
@@ -260,14 +272,17 @@ class PyOpenCLEvaluator(
             return result
 
         if isinstance(hlo, ZerosLikeOp):
-            return self.actx.np.zeros(expr.shape, expr.dtype)
+            return cast(
+                "cla.Array",
+                self.actx.np.zeros(cast("tuple[int, ...]", expr.shape), expr.dtype),
+            )
 
         if isinstance(hlo, BinaryOp):
             if _has_nonscalar_broadcast(hlo.x1, hlo.x2):
                 return self._eval_idx_lambda_using_lpy_kernel(expr)
 
-            x1 = _rec_ary_or_scalar(hlo.x1)
-            x2 = _rec_ary_or_scalar(hlo.x2)
+            x1 = cast("cla.Array", _rec_ary_or_scalar(hlo.x1))
+            x2 = cast("cla.Array", _rec_ary_or_scalar(hlo.x2))
 
             match hlo.binary_op:
                 case BinaryOpType.ADD:
@@ -299,13 +314,11 @@ class PyOpenCLEvaluator(
                 case BinaryOpType.GREATER_EQUAL:
                     return x1 >= x2
                 case BinaryOpType.LOGICAL_OR:
-                    return cla.logical_or(x1, x2, queue=self.actx.queue)
+                    return cast("cla.Array", self.actx.np.logical_or(x1, x2))
                 case BinaryOpType.LOGICAL_AND:
-                    return cla.logical_and(x1, x2, queue=self.actx.queue)
+                    return cast("cla.Array", self.actx.np.logical_and(x1, x2))
                 case BinaryOpType.FLOORDIV | BinaryOpType.MOD:
                     return self._eval_idx_lambda_using_lpy_kernel(expr)
-                case _:
-                    raise NotImplementedError(hlo.binary_op)
 
         if isinstance(hlo, C99CallOp):
             # pyopencl.clmath does support broadcasts.
@@ -316,7 +329,9 @@ class PyOpenCLEvaluator(
             if not hasattr(clmath, clmath_name):
                 return self._eval_idx_lambda_using_lpy_kernel(expr)
 
-            clmath_func = getattr(clmath, clmath_name)
+            clmath_func = cast(
+                "Callable[..., cla.Array]", getattr(clmath, clmath_name)
+            )
             return clmath_func(
                 *(_rec_ary_or_scalar(arg) for arg in hlo.args),
                 queue=self.actx.queue,
@@ -326,45 +341,53 @@ class PyOpenCLEvaluator(
             if _has_nonscalar_broadcast(hlo.condition, hlo.then, hlo.else_):
                 return self._eval_idx_lambda_using_lpy_kernel(expr)
 
-            condition = _rec_ary_or_scalar(hlo.condition)
-            then = _rec_ary_or_scalar(hlo.then)
-            else_ = _rec_ary_or_scalar(hlo.else_)
+            condition = cast("cla.Array", _rec_ary_or_scalar(hlo.condition))
+            then = cast("cla.Array", _rec_ary_or_scalar(hlo.then))
+            else_ = cast("cla.Array", _rec_ary_or_scalar(hlo.else_))
             if np.result_type(then) != np.result_type(else_):
                 return self._eval_idx_lambda_using_lpy_kernel(expr)
 
-            return cla.if_positive(
-                condition,
-                then,
-                else_,
-                queue=self.actx.queue,
+            return cast(
+                "cla.Array",
+                cla.if_positive(
+                    condition,
+                    then,
+                    else_,
+                    queue=self.actx.queue,
+                ),
             )
 
         if isinstance(hlo, BroadcastOp):
             return self._eval_idx_lambda_using_lpy_kernel(expr)
 
         if isinstance(hlo, TypeCastOp):
-            return self.rec(hlo.x).astype(hlo.dtype)
+            assert isinstance(hlo.x, Array)
+            return self.rec_ary(hlo.x).astype(hlo.dtype)
 
         if isinstance(hlo, LogicalNotOp):
-            return cla.logical_not(self.rec(hlo.x), queue=self.actx.queue)
+            return cast("cla.Array", self.actx.np.logical_not(self.rec_ary(hlo.x)))
 
         if isinstance(hlo, ReduceOp):
 
-            x = self.rec(hlo.x)
+            x = self.rec_ary(hlo.x)
 
             if tuple(sorted(hlo.axes)) != tuple(range(hlo.x.ndim)):
                 return self._eval_idx_lambda_using_lpy_kernel(expr)
 
             if isinstance(hlo.op, pt_red.SumReductionOperation):
-                return self.actx.np.sum(x).astype(expr.dtype)
+                return cast("cla.Array", self.actx.np.sum(x).astype(expr.dtype))
             elif isinstance(hlo.op, pt_red.MaxReductionOperation):
-                return self.actx.np.max(x).astype(expr.dtype)
+                return cast("cla.Array", self.actx.np.max(x).astype(expr.dtype))
             elif isinstance(hlo.op, pt_red.MinReductionOperation):
-                return self.actx.np.min(x).astype(expr.dtype)
+                return cast("cla.Array", self.actx.np.min(x).astype(expr.dtype))
             elif isinstance(hlo.op, pt_red.AllReductionOperation):
-                return self.actx.np.all(x).astype(expr.dtype)
+                all_res = self.actx.np.all(x)
+                assert isinstance(all_res, cla.Array)
+                return all_res.astype(expr.dtype)
             elif isinstance(hlo.op, pt_red.AnyReductionOperation):
-                return self.actx.np.any(x).astype(expr.dtype)
+                any_res = self.actx.np.any(x)
+                assert isinstance(any_res, cla.Array)
+                return any_res.astype(expr.dtype)
             else:
                 raise NotImplementedError
 
@@ -387,34 +410,44 @@ class PyOpenCLEvaluator(
         return cl_ary
 
     def map_stack(self, expr: pt.Stack) -> cla.Array:
-        return cla.stack([self.rec(ary) for ary in expr.arrays])
+        return self.actx.np.stack([self.rec_ary(ary) for ary in expr.arrays])
 
     def map_concatenate(self, expr: pt.Concatenate) -> cla.Array:
-        return cla.concatenate([self.rec(ary) for ary in expr.arrays])
+        return self.actx.np.concatenate([self.rec_ary(ary) for ary in expr.arrays])
 
     def map_roll(self, expr: pt.Roll) -> cla.Array:
         # pyopencl does not implement roll
         return self._eval_idx_lambda_using_lpy_kernel(to_index_lambda(expr))
 
     def map_axis_permutation(self, expr: pt.AxisPermutation) -> cla.Array:
-        rec_ary = self.rec(expr.array)
-        return rec_ary.transpose(expr.axis_permutation)
+        rec_ary = self.rec_ary(expr.array)
+        return rec_ary.transpose(  # pyright: ignore[reportUnknownMemberType]
+            expr.axis_permutation
+        )
 
     def map_reshape(self, expr: pt.Reshape) -> cla.Array:
-        rec_ary = self.rec(expr.array)
-        return rec_ary.reshape(expr.newshape, order=expr.order)
+        rec_ary = self.rec_ary(expr.array)
+        return rec_ary.reshape(  # pyright: ignore[reportUnknownMemberType]
+            expr.newshape, order=expr.order
+        )
 
     def map_einsum(self, expr: pt.Einsum) -> cla.Array:
-        return self.actx.einsum(
-            get_einsum_specification(expr), *[self.rec(arg) for arg in expr.args]
+        return cast(
+            "cla.Array",
+            self.actx.einsum(
+                get_einsum_specification(expr),
+                *[self.rec_ary(arg) for arg in expr.args],
+            ),
         )
 
     def map_named_array(self, expr: pt.NamedArray) -> cla.Array:
-        return self.rec(expr.expr)
+        return self.rec_ary(expr.expr)
 
-    def map_dict_of_named_arrays(self, expr: pt.DictOfNamedArrays) -> cla.Array:
+    def map_dict_of_named_arrays(
+        self, expr: pt.DictOfNamedArrays
+    ) -> Mapping[str, cla.Array]:
         return constantdict(
-            {name: self.rec(ary) for name, ary in expr._data.items()}
+            {name: self.rec_ary(ary) for name, ary in expr._data.items()}
         )
 
     def map_basic_index(self, expr: pt.BasicIndex) -> cla.Array:
@@ -428,7 +461,7 @@ class PyOpenCLEvaluator(
                 assert isinstance(idx.stop, INT_CLASSES)
                 assert isinstance(idx.step, INT_CLASSES)
                 indices.append(slice(idx.start, idx.stop, idx.step))
-        return self.rec(expr.array)[tuple(indices)]
+        return self.rec_ary(expr.array)[tuple(indices)]
 
     def map_contiguous_advanced_index(
         self, expr: pt.AdvancedIndexInContiguousAxes

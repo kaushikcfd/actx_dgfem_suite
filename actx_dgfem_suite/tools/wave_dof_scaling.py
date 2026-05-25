@@ -30,7 +30,7 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from time import time
-from typing import Any, ClassVar, cast
+from typing import ClassVar, cast
 
 import grudge.geometry as geom
 import numpy as np
@@ -327,21 +327,27 @@ def main(
             t_warmup = 0
 
             compiled_rhs_clbl(rhs_args)
-            del compiled_rhs_clbl.f
+            # Pop `f` to get rid of any associate memoized cl arrays
+            vars(compiled_rhs_clbl).pop("f", None)
             del rhs_clbl
+
+            assert isinstance(actx, DGFEMOptimizerArrayContext)
+            assert actx.allocator is not None
 
             if isinstance(actx.allocator, cl_tools.MemoryPool):
                 gc.collect()
                 actx.queue.finish()
                 actx.allocator.free_held()
-                if hasattr(actx, "_pytools_memoize_in_dict"):
-                    cast(
-                        "dict[Any, Any]", actx._pytools_memoize_in_dict
-                    ).clear()
-                if hasattr(actx, "_pytools_keyed_memoize_in_dict"):
-                    cast(
-                        "dict[Any, Any]", actx._pytools_keyed_memoize_in_dict
-                    ).clear()
+
+                memoize_cache = getattr(actx, "_pytools_memoize_in_dict", None)
+                if isinstance(memoize_cache, dict):
+                    memoize_cache.clear()
+
+                keyed_memoize_cache = getattr(
+                    actx, "_pytools_keyed_memoize_in_dict", None
+                )
+                if isinstance(keyed_memoize_cache, dict):
+                    keyed_memoize_cache.clear()
                 gc.collect()
 
             while i_warmup < 5 and t_warmup < 2:
