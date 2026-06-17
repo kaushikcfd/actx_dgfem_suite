@@ -69,31 +69,6 @@ jobs:
           cd test
           pytest -v .
 
-  tiny_operator_generate:
-    runs-on: ubuntu-latest
-    env:
-      JAX_ENABLE_X64: "1"
-      XLA_PYTHON_CLIENT_PREALLOCATE: "false"
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: conda-incubator/setup-miniconda@v3
-        with:
-          environment-file: ".test-conda-env.yml"
-          activate-environment: "actx-dgfem-env"
-          auto-activate-base: false
-          auto-update-conda: true
-
-      - name: Install actx_dgfem_suite
-        run: pip install -e .
-
-      - name: Generate tiny operators
-        run: |
-          python -m actx_dgfem_suite.suite_generators \
-            --equations tiny_euler,tiny_maxwell,tiny_wave \
-            --dims 2,3 \
-            --degrees 1,2,3,4
-
   tiny_operator_test:
     runs-on: ubuntu-latest
     strategy:
@@ -118,7 +93,6 @@ jobs:
 
       - name: Execute tiny operators
         run: |
-          dvc pull
           python ${{ matrix.optimize }} -m actx_dgfem_suite.run \
             --equations ${{ matrix.equation }}  \
             --dims 2,3 \

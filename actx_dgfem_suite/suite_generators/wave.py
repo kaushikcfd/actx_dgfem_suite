@@ -236,8 +236,14 @@ def bump(
     )
 
 
-def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
-    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, ndofs)
+def get_wave_rhs(
+    *,
+    actx: ArrayContext,
+    dim: int,
+    order: int,
+    ndofs: int,
+) -> tuple[Callable[[WaveState], WaveState], tuple[WaveState]]:
+    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, int(ndofs))
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
@@ -275,12 +281,16 @@ def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
     def rhs(w: WaveState) -> WaveState:
         return wave_operator(actx, dcoll, c=c, w=w, quad_tag=None)
 
+    fields = actx.freeze_thaw(fields)
+    return rhs, (fields,)
+
+
+def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
+    rhs, (fields,) = get_wave_rhs(actx=actx, dim=dim, order=order, ndofs=ndofs)
     compiled_rhs = cast(
         "Callable[[WaveState], WaveState]",
         actx.compile(rhs),  # pyright: ignore[reportArgumentType]
     )
-
-    fields = actx.thaw(actx.freeze(fields))
     compiled_rhs(fields)
 
 

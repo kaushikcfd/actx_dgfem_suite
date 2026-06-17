@@ -25,6 +25,7 @@ THE SOFTWARE.
 
 
 import logging
+from collections.abc import Callable
 
 import numpy as np
 from arraycontext import ArrayContext
@@ -39,37 +40,43 @@ from actx_dgfem_suite.utils import get_nel_1d_for_regular_rect_mesh
 logger = logging.getLogger(__name__)
 
 
-def main(actx: ArrayContext, dim: int, order: int, ndofs: int):
-    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, ndofs)
+def get_maxwell_rhs(
+    *,
+    actx: ArrayContext,
+    dim: int,
+    order: int,
+    ndofs: int,
+) -> tuple[Callable[[float, Vector], Vector], tuple[np.float64, Vector]]:
+    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, int(ndofs))
     mesh = generate_regular_rect_mesh(
         a=(0.0,) * dim, b=(1.0,) * dim, nelements_per_axis=(nel_1d,) * dim
     )
 
     dcoll = make_discretization_collection(actx, mesh, order=order)
 
-    epsilon = 1
-    mu = 1
-
     maxwell_operator = MaxwellOperator(
-        dcoll, epsilon, mu, flux_type=0.5, dimensions=dim
+        dcoll, epsilon=1, mu=1, flux_type=0.5, dimensions=dim
     )
 
-    def cavity_mode(x: ObjectArray[tuple[int], _DOFArray], t: float):
+    def cavity_mode(x: ObjectArray[tuple[int], _DOFArray], t: float) -> Vector:
         if dim == 3:
             return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
         else:
             return get_rectangular_cavity_mode(actx, x, t, 1, (2, 3))
-
-    fields = cavity_mode(actx.thaw(dcoll.nodes()), 0)
 
     maxwell_operator.check_bc_coverage(mesh)
 
     def rhs(t: float, w: Vector) -> Vector:
         return maxwell_operator.operator(t, w)
 
-    compiled_rhs = actx.compile(rhs)
+    # Hack to force real-only fields, then freeze so the call args are concrete.
+    fields = actx.freeze_thaw(
+        actx.np.real(cavity_mode(actx.thaw(dcoll.nodes()), 0))
+    )
+    return rhs, (np.float64(0.5), fields)
 
-    fields = actx.freeze_thaw(fields)
-    # Hack to forces real only fields.
-    fields = actx.np.real(fields)
-    compiled_rhs(np.float64(0.5), fields)
+
+def main(actx: ArrayContext, dim: int, order: int, ndofs: int):
+    rhs, (t, fields) = get_maxwell_rhs(actx=actx, dim=dim, order=order, ndofs=ndofs)
+    compiled_rhs = actx.compile(rhs)
+    compiled_rhs(t, fields)

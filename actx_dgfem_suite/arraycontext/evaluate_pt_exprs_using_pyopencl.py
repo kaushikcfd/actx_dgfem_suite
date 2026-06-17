@@ -25,7 +25,7 @@ THE SOFTWARE.
 """
 
 import keyword
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Never, cast, overload
 
 import loopy as lp
@@ -34,7 +34,6 @@ import pymbolic.mapper
 import pyopencl.array as cla
 import pytato.reductions as pt_red
 from constantdict import constantdict
-from pyopencl import clmath
 from pytato.array import (
     AbstractResultWithNamedArrays,
     Array,
@@ -54,6 +53,13 @@ from pytato.transform.lower_to_index_lambda import to_index_lambda
 from pytato.utils import are_shapes_equal, get_einsum_specification
 from pytools import UniqueNameGenerator
 from typing_extensions import override
+
+_C99_TO_NP_NAME: dict[str, str] = {
+    "asin": "arcsin",
+    "acos": "arccos",
+    "atan": "arctan",
+    "atan2": "arctan2",
+}
 
 if TYPE_CHECKING:
     import pytato as pt
@@ -321,20 +327,22 @@ class PyOpenCLEvaluator(
                     return self._eval_idx_lambda_using_lpy_kernel(expr)
 
         if isinstance(hlo, C99CallOp):
-            # pyopencl.clmath does support broadcasts.
             if _has_nonscalar_broadcast(*hlo.args):
                 return self._eval_idx_lambda_using_lpy_kernel(expr)
 
-            clmath_name = hlo.function
-            if not hasattr(clmath, clmath_name):
+            # Strip the "pytato.c99." namespace prefix if present, then translate
+            # C99 names that differ from numpy (asin->arcsin, etc.).
+            c99_name = hlo.function.removeprefix("pytato.c99.")
+            func_name = _C99_TO_NP_NAME.get(c99_name, c99_name)
+
+            if not hasattr(self.actx.np, func_name):
                 return self._eval_idx_lambda_using_lpy_kernel(expr)
 
-            clmath_func = cast(
-                "Callable[..., cla.Array]", getattr(clmath, clmath_name)
-            )
-            return clmath_func(
-                *(_rec_ary_or_scalar(arg) for arg in hlo.args),
-                queue=self.actx.queue,
+            return cast(
+                "cla.Array",
+                getattr(self.actx.np, func_name)(
+                    *(_rec_ary_or_scalar(arg) for arg in hlo.args)
+                ),
             )
 
         if isinstance(hlo, WhereOp):

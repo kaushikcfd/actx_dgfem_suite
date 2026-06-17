@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from typing import (
@@ -63,6 +63,10 @@ class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
     ) -> None:
         super().__init__(queue=queue, allocator=allocator)
         self.ir_to_inspect: Literal["pytato", "loopy"] = ir_to_inspect
+
+    @override
+    def clone(self) -> OptimizedDGFemIRInspectingActx:
+        return type(self)(self.ir_to_inspect, self.queue, self.allocator)
 
     @override
     def transform_dag(
@@ -500,70 +504,18 @@ def _get_ir(
 def _get_ir(
     ir_type: Literal["pytato", "loopy"], equation: str, dim: int, degree: int
 ) -> lp.TranslationUnit | pt.AbstractResultWithNamedArrays:
-    from meshmode.dof_array import array_context_for_pickling
+    from actx_dgfem_suite.rhs_builder import get_rhs
 
-    from actx_dgfem_suite.utils import (
-        get_benchmark_ref_input_arguments_path,
-        get_benchmark_rhs_invoker,
-        is_dataclass_array_container,
-    )
-
-    rhs_invoker = get_benchmark_rhs_invoker(equation, dim, degree)
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)
     alloc = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(cq))
 
     actx = OptimizedDGFemIRInspectingActx(ir_type, cq, alloc)
-    rhs_clbl: Callable[..., None] = rhs_invoker(actx)  # pyright: ignore[reportAny]
-
-    with open(
-        get_benchmark_ref_input_arguments_path(equation, dim, degree), "rb"
-    ) as fp:
-        import pickle
-
-        with array_context_for_pickling(actx):
-            loaded = cast(
-                "tuple[tuple[object, ...], dict[str, object]]", pickle.load(fp)
-            )
-            np_args, np_kwargs = loaded
-
-    if all(
-        (
-            is_dataclass_array_container(arg)
-            or (
-                isinstance(arg, np.ndarray)
-                and arg.dtype == "O"
-                and all(
-                    is_dataclass_array_container(el)  # pyright: ignore[reportAny]
-                    for el in arg  # pyright: ignore[reportAny]
-                )
-            )
-            or np.isscalar(arg)
-        )
-        for arg in np_args
-    ) and all(
-        is_dataclass_array_container(arg) or np.isscalar(arg)
-        for arg in np_kwargs.values()
-    ):
-        args, kwargs = np_args, np_kwargs
-    elif any(is_dataclass_array_container(arg) for arg in np_args) or any(
-        is_dataclass_array_container(arg) for arg in np_kwargs.values()
-    ):
-        raise NotImplementedError("Pickling not implemented for input" " types.")
-    else:
-        args, kwargs = (
-            tuple(
-                actx.from_numpy(arg)  # pyright: ignore[reportUnknownMemberType]
-                for arg in np_args
-            ),
-            {
-                kw: actx.from_numpy(arg)  # pyright: ignore[reportUnknownMemberType]
-                for kw, arg in np_kwargs.items()
-            },
-        )
+    rhs, args = get_rhs(equation, actx, dim, degree)
+    compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportAny]
 
     try:
-        rhs_clbl(*args, **kwargs)
+        compiled_rhs(*args)  # pyright: ignore[reportAny]
     except (
         OptimizedDGFemIRInspectingActxError
     ) as e:  # pyright: ignore[reportUnknownVariableType]

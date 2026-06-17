@@ -1,17 +1,25 @@
 __doc__ = """
 A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
-``python run.py -h`` for a detailed description on how to run the benchmarks.
+``python -m actx_dgfem_suite.run -h`` for a detailed description on how to run
+the benchmarks.
 """
 
 import argparse
 import dataclasses as dc
 import gc
 from collections.abc import Sequence
+from time import time
 
 import loopy as lp
 import numpy as np
 import numpy.typing as npt
-from arraycontext import ArrayContext, EagerJAXArrayContext, PytatoJAXArrayContext
+from arraycontext import (
+    ArrayContext,
+    EagerJAXArrayContext,
+    NumpyArrayContext,
+    PytatoJAXArrayContext,
+    rec_multimap_array_container,
+)
 from bidict import bidict
 from meshmode.array_context import (
     PyOpenCLArrayContext as BasePyOpenCLArrayContext,
@@ -20,8 +28,9 @@ from tabulate import tabulate
 from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
-from actx_dgfem_suite.measure import get_flop_rate
-from actx_dgfem_suite.perf_analysis import get_roofline_flop_rate
+from actx_dgfem_suite.measure import _instantiate_actx_t, finish_command_queue
+from actx_dgfem_suite.perf_analysis import get_float64_flops, get_roofline_flop_rate
+from actx_dgfem_suite.rhs_builder import get_rhs
 
 
 class PyOpenCLArrayContext(BasePyOpenCLArrayContext):
@@ -48,6 +57,78 @@ def stringify_flops(flops: float) -> str:
         return "N/A"
     else:
         return f"{flops * 1e-9:.1f}"
+
+
+def _get_flop_rate(
+    actx_t: type[ArrayContext], equation: str, dim: int, degree: int
+) -> float:
+    # {{{ reference pass with NumpyArrayContext
+
+    numpy_actx = NumpyArrayContext()
+    ref_rhs, ref_args = get_rhs(equation, numpy_actx, dim, degree)
+    ref_output = ref_rhs(*ref_args)  # pyright: ignore[reportAny]
+    np_ref_output = numpy_actx.to_numpy(ref_output)  # pyright: ignore[reportAny]
+    del numpy_actx, ref_rhs, ref_args, ref_output
+    gc.collect()
+
+    # }}}
+
+    # {{{ target actx pass
+
+    actx = _instantiate_actx_t(actx_t)
+    rhs, args = get_rhs(equation, actx, dim, degree)
+    compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportAny]
+
+    output = compiled_rhs(*args)  # pyright: ignore[reportAny]
+    rec_multimap_array_container(
+        lambda x, y: np.testing.assert_allclose(  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            x,  # pyright: ignore[reportUnknownArgumentType]
+            y,  # pyright: ignore[reportUnknownArgumentType]
+            rtol=1e-5,
+            atol=1e-5,
+        ),
+        np_ref_output,
+        actx.to_numpy(output),  # pyright: ignore[reportAny]
+    )
+    del output
+
+    # }}}
+
+    # {{{ warmup rounds
+
+    i_warmup = 0
+    t_warmup = 0.0
+
+    while i_warmup < 5 and t_warmup < 2:
+        finish_command_queue(actx)
+        t_start = time()
+        compiled_rhs(*args)  # pyright: ignore[reportAny]
+        finish_command_queue(actx)
+        t_end = time()
+        t_warmup += t_end - t_start
+        i_warmup += 1
+
+    # }}}
+
+    # {{{ timing rounds
+
+    i_timing = 0
+    t_rhs = 0.0
+
+    while i_timing < 50 and t_rhs < 4:
+        finish_command_queue(actx)
+        t_start = time()
+        for _ in range(3):
+            compiled_rhs(*args)
+        finish_command_queue(actx)
+        t_end = time()
+        t_rhs += t_end - t_start
+        i_timing += 3
+
+    # }}}
+
+    flops = get_float64_flops(equation, dim, degree)
+    return (flops * i_timing) / t_rhs
 
 
 def main(
@@ -78,25 +159,10 @@ def main(
         for idim, dim in enumerate(dims):
             for iequation, equation in enumerate(equations):
                 for idegree, degree in enumerate(degrees):
-                    flop_rate[iactx_t, idim, iequation, idegree] = get_flop_rate(
+                    flop_rate[iactx_t, idim, iequation, idegree] = _get_flop_rate(
                         actx_t, equation, dim, degree
                     )
                     gc.collect()
-
-    # TODO: Re-enable saving.
-    # filename = datetime.datetime.now(pytz.timezone("America/Chicago")).strftime(
-    #     "archive/case_%Y_%m_%d_%H%M.npz"
-    # )
-
-    # np.savez(
-    #     filename,
-    #     equations=equations,
-    #     degrees=degrees,
-    #     dims=dims,
-    #     actx_ts=actx_ts,  # pyright-ignore[reportArgumentType]
-    #     flop_rate=flop_rate,
-    #     roofline_flop_rate=roofline_flop_rate,
-    # )
 
     for idim, dim in enumerate(dims):
         for iequation, equation in enumerate(equations):
@@ -155,7 +221,7 @@ class CLIArgs:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        prog="run.py",
+        prog="python -m actx_dgfem_suite.run",
         description="Run DG-FEM benchmarks for arraycontexts",
     )
 
@@ -165,7 +231,7 @@ if __name__ == "__main__":
         type=str,
         help=(
             "comma separated strings representing which"
-            " equations to time (for ex. 'wave,euler')"
+            " equations to time (for ex. 'wave,euler,maxwell')"
         ),
         required=True,
     )
@@ -195,13 +261,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--actxs",
-        metavar="G",
+        metavar="A",
         type=str,
         help=(
-            "comma separated integers representing the"
-            " polynomial degree of the discretizing function"
-            " spaces to run the problems on (for ex."
-            " 'pyopencl,jax:jit,pytato:dgfem_opt')"
+            "comma separated array context names"
+            " (for ex. 'pyopencl,jax:jit,pytato:dgfem_opt')"
         ),
         required=True,
     )
