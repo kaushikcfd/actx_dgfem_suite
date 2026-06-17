@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 
 import logging
+from collections.abc import Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -129,22 +130,22 @@ def acoustic_pulse_condition(
     )
 
 
-def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
-
-    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, ndofs)
-
-    # eos-related parameters
+def get_euler_rhs(
+    *,
+    actx: ArrayContext,
+    dim: int,
+    order: int,
+    ndofs: int,
+) -> tuple[
+    Callable[[float, ConservedEulerField], ConservedEulerField],
+    tuple[np.float64, ConservedEulerField],
+]:
+    nel_1d = get_nel_1d_for_regular_rect_mesh(dim, order, int(ndofs))
     gamma = 1.4
 
-    # {{{ discretization
-
-    box_ll = -0.5
-    box_ur = 0.5
     mesh = generate_regular_rect_mesh(
-        a=(box_ll,) * dim, b=(box_ur,) * dim, nelements_per_axis=(nel_1d,) * dim
+        a=(-0.5,) * dim, b=(0.5,) * dim, nelements_per_axis=(nel_1d,) * dim
     )
-
-    quad_tag = None
 
     dcoll = DiscretizationCollection(
         actx,
@@ -157,16 +158,12 @@ def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
         },
     )
 
-    # }}}
-
-    # {{{ Euler operator
-
     euler_operator = EulerOperator(
         dcoll,
         bdry_conditions={BTAG_ALL: InviscidWallBC()},
         flux_type="lf",
         gamma=gamma,
-        quadrature_tag=quad_tag,
+        quadrature_tag=None,
     )
 
     def rhs(t: float, q: ConservedEulerField) -> ConservedEulerField:
@@ -174,19 +171,16 @@ def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
             actx, t, q
         )
 
-    compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportArgumentType]
-
-    fields = acoustic_pulse_condition(actx.thaw(dcoll.nodes()))
-
-    # }}}
-
-    t = np.float64(0.5)
-    fields = actx.thaw(  # pyright: ignore[reportUnknownVariableType]
-        actx.freeze(  # pyright: ignore[reportUnknownArgumentType]
-            fields  # pyright: ignore[reportArgumentType]
-        )
+    fields = actx.freeze_thaw(  # pyright: ignore[reportUnknownVariableType]
+        acoustic_pulse_condition(actx.thaw(dcoll.nodes()))  # pyright: ignore[reportArgumentType]
     )
-    compiled_rhs(t, fields)  # pyright: ignore[reportUnknownArgumentType]
+    return rhs, (np.float64(0.5), fields)
+
+
+def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
+    rhs, (t, fields) = get_euler_rhs(actx=actx, dim=dim, order=order, ndofs=ndofs)
+    compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportArgumentType]
+    compiled_rhs(t, fields)
 
 
 # vim: foldmethod=marker
