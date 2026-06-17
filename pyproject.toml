@@ -48,7 +48,7 @@ exclude = ["assets"]
 preview = true
 line-length = 85
 exclude = [
-    "actx_dgfem_suite/suite_generators/cns.py", # pulls lots of deps (mirgecom, etc.) -> better to just avoid it
+    "actx_dgfem_suite/equations/cns.py", # pulls lots of deps (mirgecom, etc.) -> better to just avoid it
     "assets/*",
 ]
 
@@ -97,7 +97,7 @@ ignore = [
     "doc/conf.py",
 
     # pulls lots of deps -> better to avoid it.
-    "actx_dgfem_suite/suite_generators/cns.py",
+    "actx_dgfem_suite/equations/cns.py",
 ]
 
 [[tool.basedpyright.executionEnvironments]]
