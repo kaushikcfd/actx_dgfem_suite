@@ -38,7 +38,7 @@ from tabulate import tabulate
 
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
 from actx_dgfem_suite.equations.wave import get_wave_rhs
-from actx_dgfem_suite.measure import _instantiate_actx_t, finish_command_queue
+from actx_dgfem_suite.measure import finish_command_queue, instantiate_actx_t
 from actx_dgfem_suite.utils import (
     get_ndof_for_regular_rect_mesh,
     get_nel_1d_for_regular_rect_mesh,
@@ -67,7 +67,7 @@ def main(
             import gc
 
             gc.collect()
-            actx = _instantiate_actx_t(DGFEMOptimizerArrayContext)
+            actx = instantiate_actx_t(DGFEMOptimizerArrayContext)
             rhs_clbl, (rhs_args,) = get_wave_rhs(
                 actx=actx,
                 dim=dim,
@@ -133,7 +133,7 @@ def main(
                 finish_command_queue(actx)
                 t_end = time()
 
-                t_rhs += (t_end - t_start)
+                t_rhs += t_end - t_start
                 i_timing += 3
 
             # }}}

@@ -27,6 +27,7 @@ THE SOFTWARE.
 
 import logging
 from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -172,9 +173,11 @@ def get_euler_rhs(
         )
 
     fields = actx.freeze_thaw(  # pyright: ignore[reportUnknownVariableType]
-        acoustic_pulse_condition(actx.thaw(dcoll.nodes()))  # pyright: ignore[reportArgumentType]
+        acoustic_pulse_condition(
+            actx.thaw(dcoll.nodes())
+        )  # pyright: ignore[reportArgumentType]
     )
-    return rhs, (np.float64(0.5), fields)
+    return rhs, (np.float64(0.5), cast("ConservedEulerField", fields))
 
 
 def main(dim: int, order: int, actx: ArrayContext, ndofs: int) -> None:
