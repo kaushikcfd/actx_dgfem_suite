@@ -60,36 +60,38 @@ def stringify_flops(flops: float) -> str:
 
 
 def _get_flop_rate(
-    actx_t: type[ArrayContext], equation: str, dim: int, degree: int
+    actx_t: type[ArrayContext],
+    equation: str,
+    dim: int,
+    degree: int,
+    verify: bool,
 ) -> float:
-    # {{{ reference pass with NumpyArrayContext
 
-    numpy_actx = NumpyArrayContext()
-    ref_rhs, ref_args = get_rhs(equation, numpy_actx, dim, degree)
-    ref_output = ref_rhs(*ref_args)  # pyright: ignore[reportAny]
-    np_ref_output = numpy_actx.to_numpy(ref_output)  # pyright: ignore[reportAny]
-    del numpy_actx, ref_rhs, ref_args, ref_output
-    gc.collect()
-
-    # }}}
-
-    # {{{ target actx pass
+    # {{{ target actx pass + optional correctness check
 
     actx = _instantiate_actx_t(actx_t)
     rhs, args = get_rhs(equation, actx, dim, degree)
     compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportAny]
 
     output = compiled_rhs(*args)  # pyright: ignore[reportAny]
-    rec_multimap_array_container(
-        lambda x, y: np.testing.assert_allclose(  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-            x,  # pyright: ignore[reportUnknownArgumentType]
-            y,  # pyright: ignore[reportUnknownArgumentType]
-            rtol=1e-5,
-            atol=1e-5,
-        ),
-        np_ref_output,
-        actx.to_numpy(output),  # pyright: ignore[reportAny]
-    )
+    if verify:
+        numpy_actx = NumpyArrayContext()
+        ref_rhs, ref_args = get_rhs(equation, numpy_actx, dim, degree)
+        ref_output = ref_rhs(*ref_args)  # pyright: ignore[reportAny]
+        np_ref_output = numpy_actx.to_numpy(ref_output)  # pyright: ignore[reportAny]
+        del numpy_actx, ref_rhs, ref_args, ref_output
+        gc.collect()
+
+        rec_multimap_array_container(
+            lambda x, y: np.testing.assert_allclose(  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+                x,  # pyright: ignore[reportUnknownArgumentType]
+                y,  # pyright: ignore[reportUnknownArgumentType]
+                rtol=1e-5,
+                atol=1e-5,
+            ),
+            np_ref_output,
+            actx.to_numpy(output),  # pyright: ignore[reportAny]
+        )
     del output
 
     # }}}
@@ -136,6 +138,7 @@ def main(
     dims: Sequence[int],
     degrees: Sequence[int],
     actx_ts: Sequence[type[ArrayContext]],
+    verify: bool,
 ):
     flop_rate: npt.NDArray[np.float64] = np.empty(
         [len(actx_ts), len(dims), len(equations), len(degrees)]
@@ -160,7 +163,7 @@ def main(
             for iequation, equation in enumerate(equations):
                 for idegree, degree in enumerate(degrees):
                     flop_rate[iactx_t, idim, iequation, idegree] = _get_flop_rate(
-                        actx_t, equation, dim, degree
+                        actx_t, equation, dim, degree, verify=verify
                     )
                     gc.collect()
 
@@ -217,6 +220,7 @@ class CLIArgs:
     dims: str
     degrees: str
     actxs: str
+    no_verify: bool
 
 
 if __name__ == "__main__":
@@ -269,6 +273,12 @@ if __name__ == "__main__":
         ),
         required=True,
     )
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        default=False,
+        help="skips value correctness checks",
+    )
 
     args = CLIArgs(**vars(parser.parse_args()))  # pyright: ignore[reportAny]
     main(
@@ -276,4 +286,5 @@ if __name__ == "__main__":
         dims=[int(k.strip()) for k in args.dims.split(",")],
         degrees=[int(k.strip()) for k in args.degrees.split(",")],
         actx_ts=[_NAME_TO_ACTX_CLASS[k] for k in args.actxs.split(",")],
+        verify=not args.no_verify,
     )
