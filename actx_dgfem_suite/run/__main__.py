@@ -28,7 +28,7 @@ from tabulate import tabulate
 from typing_extensions import override
 
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
-from actx_dgfem_suite.measure import _instantiate_actx_t, finish_command_queue
+from actx_dgfem_suite.measure import finish_command_queue, instantiate_actx_t
 from actx_dgfem_suite.perf_analysis import get_float64_flops, get_roofline_flop_rate
 from actx_dgfem_suite.rhs_builder import get_rhs
 
@@ -69,14 +69,16 @@ def _get_flop_rate(
 
     # {{{ target actx pass + optional correctness check
 
-    actx = _instantiate_actx_t(actx_t)
-    rhs, args = get_rhs(equation, actx, dim, degree)
+    actx = instantiate_actx_t(actx_t)
+    rhs, args = get_rhs(equation, actx, dim, degree)  # pyright: ignore[reportAny]
     compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportAny]
 
     output = compiled_rhs(*args)  # pyright: ignore[reportAny]
     if verify:
         numpy_actx = NumpyArrayContext()
-        ref_rhs, ref_args = get_rhs(equation, numpy_actx, dim, degree)
+        ref_rhs, ref_args = get_rhs(  # pyright: ignore[reportAny]
+            equation, numpy_actx, dim, degree
+        )
         ref_output = ref_rhs(*ref_args)  # pyright: ignore[reportAny]
         np_ref_output = numpy_actx.to_numpy(ref_output)  # pyright: ignore[reportAny]
         del numpy_actx, ref_rhs, ref_args, ref_output
@@ -104,7 +106,7 @@ def _get_flop_rate(
     while i_warmup < 5 and t_warmup < 2:
         finish_command_queue(actx)
         t_start = time()
-        compiled_rhs(*args)  # pyright: ignore[reportAny]
+        compiled_rhs(*args)
         finish_command_queue(actx)
         t_end = time()
         t_warmup += t_end - t_start

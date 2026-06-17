@@ -70,9 +70,7 @@ def get_maxwell_rhs(
         return maxwell_operator.operator(t, w)
 
     # Hack to force real-only fields, then freeze so the call args are concrete.
-    fields = actx.freeze_thaw(
-        actx.np.real(cavity_mode(actx.thaw(dcoll.nodes()), 0))
-    )
+    fields = actx.freeze_thaw(actx.np.real(cavity_mode(actx.thaw(dcoll.nodes()), 0)))
     return rhs, (np.float64(0.5), fields)
 
 

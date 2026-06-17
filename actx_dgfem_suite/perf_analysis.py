@@ -511,11 +511,11 @@ def _get_ir(
     alloc = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(cq))
 
     actx = OptimizedDGFemIRInspectingActx(ir_type, cq, alloc)
-    rhs, args = get_rhs(equation, actx, dim, degree)
+    rhs, args = get_rhs(equation, actx, dim, degree)  # pyright: ignore[reportAny]
     compiled_rhs = actx.compile(rhs)  # pyright: ignore[reportAny]
 
     try:
-        compiled_rhs(*args)  # pyright: ignore[reportAny]
+        compiled_rhs(*args)
     except (
         OptimizedDGFemIRInspectingActxError
     ) as e:  # pyright: ignore[reportUnknownVariableType]
