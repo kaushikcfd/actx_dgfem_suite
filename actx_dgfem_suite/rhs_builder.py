@@ -22,15 +22,15 @@ def get_rhs(
     base = equation.removeprefix("tiny_")
 
     if base == "wave":
-        from actx_dgfem_suite.suite_generators.wave import get_wave_rhs
+        from actx_dgfem_suite.equations.wave import get_wave_rhs
 
         return get_wave_rhs(actx=actx, dim=dim, order=degree, ndofs=ndofs)
     elif base == "euler":
-        from actx_dgfem_suite.suite_generators.euler import get_euler_rhs
+        from actx_dgfem_suite.equations.euler import get_euler_rhs
 
         return get_euler_rhs(actx=actx, dim=dim, order=degree, ndofs=ndofs)
     elif base == "maxwell":
-        from actx_dgfem_suite.suite_generators.maxwell import get_maxwell_rhs
+        from actx_dgfem_suite.equations.maxwell import get_maxwell_rhs
 
         return get_maxwell_rhs(actx=actx, dim=dim, order=degree, ndofs=ndofs)
     else:

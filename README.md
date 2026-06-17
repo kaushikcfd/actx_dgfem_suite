@@ -34,7 +34,7 @@ Supported equations: `wave`, `euler`, `maxwell`, and their `tiny_` variants
 ## HOWTO: Add new equations to the suite
 
 1. Add a `get_<equation>_rhs(*, actx, dim, order, ndofs)` function in
-   `actx_dgfem_suite/suite_generators/<equation>.py` returning
+   `actx_dgfem_suite/equations/<equation>.py` returning
    `(rhs_callable, args_tuple)`.
 2. Register the new equation in `actx_dgfem_suite/rhs_builder.py`.
 3. Add FLOP counting support in `actx_dgfem_suite/perf_analysis.py` if desired.

@@ -37,8 +37,8 @@ import pyopencl.tools as cl_tools
 from tabulate import tabulate
 
 from actx_dgfem_suite.arraycontext import DGFEMOptimizerArrayContext
+from actx_dgfem_suite.equations.wave import get_wave_rhs
 from actx_dgfem_suite.measure import _instantiate_actx_t, finish_command_queue
-from actx_dgfem_suite.suite_generators.wave import get_wave_rhs
 from actx_dgfem_suite.utils import (
     get_ndof_for_regular_rect_mesh,
     get_nel_1d_for_regular_rect_mesh,
