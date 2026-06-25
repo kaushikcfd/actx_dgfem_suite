@@ -6,8 +6,9 @@ from typing import Any
 
 from arraycontext import ArrayContext
 
-_NDOFS_FULL = 3_000_000
+_NDOFS_FULL = 4_000_000
 _NDOFS_TINY = 1_000
+_NDOFS_LARGE = 20_000_000
 
 
 def get_rhs(
@@ -18,8 +19,15 @@ def get_rhs(
 
     *call_args* is a tuple suitable for ``rhs_callable(*call_args)``.
     """
-    ndofs = _NDOFS_TINY if equation.startswith("tiny_") else _NDOFS_FULL
-    base = equation.removeprefix("tiny_")
+    if equation.startswith("tiny_"):
+        ndofs = _NDOFS_TINY
+        base = equation.removeprefix("tiny_")
+    elif equation.startswith("large_"):
+        ndofs = _NDOFS_LARGE
+        base = equation.removeprefix("large_")
+    else:
+        ndofs = _NDOFS_FULL
+        base = equation
 
     if base == "wave":
         from actx_dgfem_suite.equations.wave import get_wave_rhs
