@@ -239,7 +239,7 @@ if __name__ == "__main__":
             "comma separated strings representing which"
             " equations to time (for ex. 'wave,euler,maxwell')."
             " Prefix with 'tiny_' to use 1K DOFs per field"
-            " (for ex. 'tiny_wave') or 'large_' to use 30M DOFs"
+            " (for ex. 'tiny_wave') or 'large_' to use 20M DOFs"
             " per field (for ex. 'large_wave')."
             " The default (unprefixed) uses 4M DOFs per field."
         ),
