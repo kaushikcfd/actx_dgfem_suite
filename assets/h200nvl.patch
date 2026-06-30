@@ -1,0 +1,112 @@
+diff --git a/solvers/acoustics/acousticsMain.cpp b/solvers/acoustics/acousticsMain.cpp
+index 834f55bb..cfa0ada2 100644
+--- a/solvers/acoustics/acousticsMain.cpp
++++ b/solvers/acoustics/acousticsMain.cpp
+@@ -24,45 +24,88 @@ SOFTWARE.
+ 
+ */
+ 
++#include <chrono>
+ #include "acoustics.hpp"
+ 
+ int main(int argc, char **argv){
+ 
+-  // start up MPI
+   Comm::Init(argc, argv);
+ 
+-  LIBP_ABORT("Usage: ./acousticsMain setupfile", argc!=2);
+-
+-  { /*Scope so everything is destructed before MPI_Finalize */
++  {
+     comm_t comm(Comm::World().Dup());
+ 
+-    //create default settings
+     platformSettings_t platformSettings(comm);
+     meshSettings_t meshSettings(comm);
+     acousticsSettings_t acousticsSettings(comm);
+ 
+-    //load settings from file
+-    acousticsSettings.parseFromFile(platformSettings, meshSettings,
+-                              argv[1]);
++    // load base settings from file if provided (controls THREAD MODEL, DEVICE NUMBER, etc.)
++    if (argc == 2)
++      acousticsSettings.parseFromFile(platformSettings, meshSettings, argv[1]);
++
++    // fix mesh to 3D Tet box
++    meshSettings.changeSetting("MESH FILE",         "BOX");
++    meshSettings.changeSetting("MESH DIMENSION",    "3");
++    meshSettings.changeSetting("ELEMENT TYPE",      "6"); // tetrahedra
++    meshSettings.changeSetting("BOX BOUNDARY FLAG", "1");
++
++    acousticsSettings.changeSetting("DATA FILE",       "data/acousticsGaussian3D.h");
++    acousticsSettings.changeSetting("TIME INTEGRATOR", "LSERK4");
++    acousticsSettings.changeSetting("OUTPUT TO FILE",  "FALSE");
+ 
+-    // set up platform
+     platform_t platform(platformSettings);
+ 
+-    platformSettings.report();
+-    meshSettings.report();
+-    acousticsSettings.report();
++    // polynomial degrees and matching grid sizes chosen so GDOF ~ 12-13M
++    const int Norders              = 4;
++    const int polyDegrees[Norders] = {1,  2,  3,  4};
++    const int gridSizes[Norders]   = {95, 70, 56, 46};
++
++    const int Nwarmup = 5;
++    const int Ntimed  = 20;
++
++    printf("\n%-6s  %-16s  %-12s  %-14s  %-14s\n",
++           "Order", "Grid", "GDOF", "Time/step (s)", "GDOF/s");
++
++    for (int i = 0; i < Norders; i++) {
++      const int N     = polyDegrees[i];
++      const int Ngrid = gridSizes[i];
++
++      meshSettings.changeSetting("POLYNOMIAL DEGREE", std::to_string(N));
++      meshSettings.changeSetting("BOX NX",            std::to_string(Ngrid));
++      meshSettings.changeSetting("BOX NY",            std::to_string(Ngrid));
++      meshSettings.changeSetting("BOX NZ",            std::to_string(Ngrid));
++
++      { // scope ensures mesh and solver are destroyed before next iteration
++        mesh_t mesh(platform, meshSettings, comm);
++        acoustics_t acoustics(platform, mesh, acousticsSettings);
++
++        dlong Nlocal = mesh.Nelements * mesh.Np * acoustics.Nfields;
++        deviceMemory<dfloat> o_rhs = platform.malloc<dfloat>(Nlocal);
++
++        // warmup: allow JIT-compiled kernels to reach steady state
++        for (int w = 0; w < Nwarmup; w++)
++          acoustics.rhsf(acoustics.o_q, o_rhs, 0.0);
++        platform.finish();
++
++        auto t0 = std::chrono::steady_clock::now();
++        for (int t = 0; t < Ntimed; t++)
++          acoustics.rhsf(acoustics.o_q, o_rhs, 0.0);
++        platform.finish();
++        auto t1 = std::chrono::steady_clock::now();
+ 
+-    // set up mesh
+-    mesh_t mesh(platform, meshSettings, comm);
++        double elapsed = std::chrono::duration<double>(t1 - t0).count();
+ 
+-    // set up acoustics solver
+-    acoustics_t acoustics(platform, mesh, acousticsSettings);
++        double GDOF       = (double)mesh.Nelements * mesh.Np * acoustics.Nfields / 1.0e9;
++        double throughput = GDOF * Ntimed / elapsed;
+ 
+-    // run
+-    acoustics.Run();
++        printf("P%-5d  %2d x %2d x %2d       %12.3e  %14.6f  %14.4f\n",
++               N, Ngrid, Ngrid, Ngrid,
++               GDOF,
++               elapsed / Ntimed,
++               throughput);
++      }
++    }
+   }
+ 
+-  // close down MPI
+   Comm::Finalize();
+   return LIBP_SUCCESS;
+ }

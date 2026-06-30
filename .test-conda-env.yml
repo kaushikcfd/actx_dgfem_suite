@@ -5,6 +5,7 @@ channels:
 
 dependencies:
 - python=3
+- openblas
 - pocl # replace with ocl-icd for system ICD loaders
 - pyopencl
 - jax

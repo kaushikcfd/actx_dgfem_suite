@@ -51,9 +51,13 @@ your arraycontext type. Happy to accept PRs.
 Use the following values for N=[BOX NX]=[BOX NY]=[BOX NZ] in
 `assets/libparanumal/solvers/acoustics/setups/setupTet3D.rc`:
 
-|   | P1 | P2 | P3 | P4 |
-|---|----|----|----|----|
-| N | 50 | 37 | 30 | 25 |
+|          | P1 | P2 | P3 | P4 |
+|----------|----|----|----|----|
+|  Titan V | 50 | 37 | 30 | 25 |
+| H200 NVL | 95 | 70 | 56 | 46 |
+
+Then navigate to `libparanumal/solvers/acoustics` and run `make -j`
+in that directory.
 
 ## LICENSE
 
