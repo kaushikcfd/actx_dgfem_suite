@@ -13,7 +13,7 @@ from arraycontext import (
 )
 
 
-def instantiate_actx_t(actx_t: type[ArrayContext]) -> ArrayContext:
+def instantiate_actx_t[ActxT: (ArrayContext)](actx_t: type[ActxT]) -> ActxT:
     gc.collect()
 
     if issubclass(actx_t, (PyOpenCLArrayContext, PytatoPyOpenCLArrayContext)):
