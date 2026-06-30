@@ -55,11 +55,29 @@ def stringify_dofs_per_s(dofs_per_s: float) -> str:
         return f"{dofs_per_s * 1e-9:.3f}"
 
 
+def _get_ndofs_list() -> Sequence[int]:
+    actx = instantiate_actx_t(DGFEMOptimizerArrayContext)
+    if actx.queue.device.name == "NVIDIA TITAN V":
+        return [500_000, 1_000_000, 2_000_000, 4_000_000, 6_000_000, 7_000_000]
+    if actx.queue.device.name == "NVIDIA H200 NVL":
+        return [
+            1_000_000,
+            5_000_000,
+            10_000_000,
+            15_000_000,
+            20_000_000,
+            25_000_000,
+            27_000_000,
+        ]
+    del actx
+    raise RuntimeError("Only Titan V, H200 NVL supported.")
+
+
 def main(
     dim: int,
     degrees: Sequence[int],
 ):
-    ndofs_list = [0.5e6, 1e6, 2e6, 3e6, 4e6, 6e6, 7e6, 8e6]
+    ndofs_list = _get_ndofs_list()
     dof_throughput = np.empty([len(degrees), len(ndofs_list)])
 
     for i_degree, degree in enumerate(degrees):
