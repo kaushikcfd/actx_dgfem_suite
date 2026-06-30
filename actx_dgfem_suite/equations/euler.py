@@ -73,21 +73,23 @@ def gaussian_profile(
     rel_center = new_1d([x_vec[i] - lump_loc[i] for i in range(dim)])
     actx = x_vec[0].array_context
     assert actx is not None
-    r = actx.np.sqrt(  # pyright: ignore[reportAny]
-        np.dot(
-            rel_center, rel_center  # pyright: ignore[reportArgumentType, reportAny]
+    r = actx.np.sqrt(
+        cast(
+            "_DOFArray",
+            np.dot(rel_center, rel_center),  # pyright: ignore[reportCallIssue, reportArgumentType]
         )
     )
-    expterm = rhoamp * actx.np.exp(1 - r**2)  # pyright: ignore[reportAny]
+    expterm = rhoamp * actx.np.exp(1 - r**2)
 
-    mass = expterm + rho0  # pyright: ignore[reportAny]
-    mom = velocity * mass  # pyright: ignore[reportAny]
-    energy = (p0 / (gamma - 1.0)) + np.dot(  # pyright: ignore[reportAny]
-        mom, mom  # pyright: ignore[reportAny]
+    mass = expterm + rho0
+    mom = velocity * mass
+    energy = (p0 / (gamma - 1.0)) + cast(
+        "_DOFArray",
+        np.dot(mom, mom),  # pyright: ignore[reportCallIssue, reportArgumentType]
     ) / (2.0 * mass)
 
     return ConservedEulerField(
-        mass=mass, energy=energy, momentum=mom  # pyright: ignore[reportAny]
+        mass=mass, energy=energy, momentum=mom  # pyright: ignore[reportArgumentType]
     )
 
 
@@ -104,10 +106,14 @@ def make_pulse(
     actx = r[0].array_context
     assert actx is not None
     rms2 = w * w
-    r2 = (  # pyright: ignore[reportAny]
-        np.dot(rel_center, rel_center) / rms2  # pyright: ignore[reportArgumentType]
+    r2 = (
+        cast(
+            "_DOFArray",
+            np.dot(rel_center, rel_center),  # pyright: ignore[reportCallIssue, reportArgumentType]
+        )
+        / rms2
     )
-    return actx.np.exp(-0.5 * r2)  # pyright: ignore[reportAny]
+    return actx.np.exp(-0.5 * r2)
 
 
 def acoustic_pulse_condition(

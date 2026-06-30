@@ -227,9 +227,9 @@ def bump(
         "DOFArray",
         np.cos(source_omega * t)
         * actx.np.exp(
-            -np.dot(  # pyright: ignore[reportAny]
-                center_dist,  # pyright: ignore[reportArgumentType]
-                center_dist,  # pyright: ignore[reportArgumentType]
+            -cast(
+                "DOFArray",
+                np.dot(center_dist, center_dist),  # pyright: ignore[reportCallIssue, reportArgumentType]
             )
             / source_width**2
         ),
