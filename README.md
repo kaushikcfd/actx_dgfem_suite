@@ -37,8 +37,6 @@ Supported equations: `wave`, `euler`, `maxwell`, and their `tiny_` variants
    `actx_dgfem_suite/equations/<equation>.py` returning
    `(rhs_callable, args_tuple)`.
 2. Register the new equation in `actx_dgfem_suite/rhs_builder.py`.
-3. Add FLOP counting support in `actx_dgfem_suite/perf_analysis.py` if desired.
-
 
 ## HOWTO: Add new arraycontext implementations to compare
 
