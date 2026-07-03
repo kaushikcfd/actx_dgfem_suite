@@ -53,7 +53,7 @@ Use the following values for N=[BOX NX]=[BOX NY]=[BOX NZ] in
 
 |          | P1 | P2 | P3 | P4 |
 |----------|----|----|----|----|
-|  Titan V | 50 | 37 | 30 | 25 |
+|  Titan V | 56 | 41 | 33 | 27 |
 | H200 NVL | 95 | 70 | 56 | 46 |
 
 Then navigate to `libparanumal/solvers/acoustics` and run `make -j` in that

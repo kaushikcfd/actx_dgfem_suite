@@ -51,7 +51,7 @@ index 834f55bb..cfa0ada2 100644
 +    // polynomial degrees and matching grid sizes chosen so GDOF ~ 12-13M
 +    const int Norders              = 4;
 +    const int polyDegrees[Norders] = {1,  2,  3,  4};
-+    const int gridSizes[Norders]   = {50, 37, 30, 25};
++    const int gridSizes[Norders]   = {56, 41, 33, 27};
 +
 +    const int Nwarmup = 5;
 +    const int Ntimed  = 20;
