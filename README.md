@@ -56,8 +56,9 @@ Use the following values for N=[BOX NX]=[BOX NY]=[BOX NZ] in
 |  Titan V | 50 | 37 | 30 | 25 |
 | H200 NVL | 95 | 70 | 56 | 46 |
 
-Then navigate to `libparanumal/solvers/acoustics` and run `make -j`
-in that directory.
+Then navigate to `libparanumal/solvers/acoustics` and run `make -j` in that
+directory. For our CUDA toolkit version, we had to add `#include <cstdint>` on
+line 11 of : `libparanumal/occa/src/occa/internal/modes/dpcpp/polyfill.hpp`.
 
 ## LICENSE
 
