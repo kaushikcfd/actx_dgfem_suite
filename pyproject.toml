@@ -29,7 +29,7 @@ dependencies = [
     "black",
     "feinsum",
     "grudge",
-    "islpy",
+    "namedisl",
     "loopy",
     "meshmode",
     "numpy",

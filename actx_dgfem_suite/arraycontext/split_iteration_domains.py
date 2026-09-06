@@ -10,9 +10,14 @@ from actx_dgfem_suite.arraycontext._loop_nest_utils import LoopNest, get_loop_ne
 def get_iname_length(kernel: lp.LoopKernel, iname: str) -> float | int:
     from loopy.isl_helpers import static_max_of_pw_aff
 
-    max_domain_size = static_max_of_pw_aff(
-        kernel.get_iname_bounds(iname).size, constants_only=False
-    ).max_val()
+    max_domain_size = (
+        static_max_of_pw_aff(
+            kernel.get_iname_bounds(iname).size, constants_only=False
+        )
+        .as_pw_aff()
+        .as_isl()
+        .max_val()
+    )
     if max_domain_size.is_infty():
         import math
 
