@@ -7,6 +7,7 @@ import gc
 from arraycontext import (
     ArrayContext,
     EagerJAXArrayContext,
+    NumpyArrayContext,
     PyOpenCLArrayContext,
     PytatoJAXArrayContext,
     PytatoPyOpenCLArrayContext,
@@ -41,6 +42,8 @@ def instantiate_actx_t[ActxT: (ArrayContext)](actx_t: type[ActxT]) -> ActxT:
             "jax_enable_x64", True
         )
         return actx_t()
+    elif issubclass(actx_t, NumpyArrayContext):
+        return actx_t()
     else:
         raise NotImplementedError(actx_t)
 
@@ -50,6 +53,8 @@ def finish_command_queue(actx: ArrayContext) -> None:
         actx.queue.finish()
     elif isinstance(actx, (EagerJAXArrayContext, PytatoJAXArrayContext)):
         # actx.compile would have called block_until_ready.
+        pass
+    elif isinstance(actx, NumpyArrayContext):
         pass
     else:
         raise NotImplementedError(type(actx))

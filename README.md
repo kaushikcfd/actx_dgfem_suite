@@ -23,7 +23,7 @@ $ pip install -e .
 $ python -O -m actx_dgfem_suite.run --equations "wave,euler,maxwell" \
                                     --degrees "1,2,3,4" \
                                     --dims "3" \
-                                    --actxs "pyopencl,jax:jit,pytato:dgfem_opt"
+                                    --actxs "numpy,pyopencl,jax:jit,pytato:dgfem_opt"
 ```
 
 Supported equations: `wave`, `euler`, `maxwell`, and their `tiny_` variants
