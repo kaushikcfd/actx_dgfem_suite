@@ -208,6 +208,7 @@ def main(
 
 _NAME_TO_ACTX_CLASS = bidict(
     {
+        "numpy": NumpyArrayContext,
         "pyopencl": PyOpenCLArrayContext,
         "jax:nojit": EagerJAXArrayContext,
         "jax:jit": PytatoJAXArrayContext,
@@ -275,7 +276,7 @@ if __name__ == "__main__":
         type=str,
         help=(
             "comma separated array context names"
-            " (for ex. 'pyopencl,jax:jit,pytato:dgfem_opt')"
+            " (for ex. 'numpy,pyopencl,jax:jit,pytato:dgfem_opt')"
         ),
         required=True,
     )
