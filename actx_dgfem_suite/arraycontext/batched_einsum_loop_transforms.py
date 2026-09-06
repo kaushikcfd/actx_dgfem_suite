@@ -110,18 +110,18 @@ def _is_divergence_einsum(batched_einsum: fnsm.BatchedEinsum) -> bool:
 
 @lp.for_each_kernel
 def _merge_domains_for_potential_loop_nests(kernel: lp.LoopKernel) -> lp.LoopKernel:
-    import islpy as isl
+    import namedisl as nisl
     from feinsum.loopy_utils import decouple_domain
 
     all_inames = kernel.all_inames()
     for iname in all_inames:
         hdi = kernel.get_home_domain_index(iname)
-        assert kernel.domains[hdi].dim(isl.dim_type.set) > 0
-        if kernel.domains[hdi].dim(isl.dim_type.set) == 1:
+        assert kernel.domains[hdi].space.dim(nisl.DimType.out) > 0
+        if kernel.domains[hdi].space.dim(nisl.DimType.out) == 1:
             continue
         kernel = decouple_domain(kernel, (iname,), ())
 
-    new_domains: list[isl.BasicSet] = []
+    new_domains: list[nisl.Set] = []
     loop_nests = frozenset(
         insn.within_inames | insn.reduction_inames()
         for insn in kernel.instructions
