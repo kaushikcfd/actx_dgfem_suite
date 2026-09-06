@@ -159,10 +159,10 @@ def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
             if not preds[v]:
                 # If no predecessors, sets are empty
                 opt.add(  # pyright: ignore[reportUnknownMemberType]
-                    P[v][u] == False  # noqa: E712
+                    P[v][u] == False  # ruff: ignore[true-false-comparison]
                 )
                 opt.add(  # pyright: ignore[reportUnknownMemberType]
-                    U[v][u] == False  # noqa: E712
+                    U[v][u] == False  # ruff: ignore[true-false-comparison]
                 )
             else:
                 p_terms: list[object] = []
@@ -239,17 +239,17 @@ def solve_dgfem_materialization_eq_using_z3_legacy(dfg: DataFlowGraph):
         if c[v] == 1:
             for u in V:
                 opt.add(  # pyright: ignore[reportUnknownMemberType]
-                    U[v][u] == False  # noqa: E712
+                    U[v][u] == False  # ruff: ignore[true-false-comparison]
                 )
         # Boundary Condition: f(v) = 0 if preds(v) is empty
         if not preds[v]:
             opt.add(  # pyright: ignore[reportUnknownMemberType]
-                f[v] == False  # noqa: E712
+                f[v] == False  # ruff: ignore[true-false-comparison]
             )
         # Boundary Condition: f(v) = 1 if succs(v) is empty
         if not succs[v]:
             opt.add(  # pyright: ignore[reportUnknownMemberType]
-                f[v] == True  # noqa: E712
+                f[v] == True  # ruff: ignore[true-false-comparison]
             )
 
     # Minimize the sum of materialized nodes (See Defn. (TODO) of the paper.)
@@ -368,7 +368,7 @@ def solve_dgfem_materialization_eq_using_z3(
             if not preds[v]:
                 # If no predecessors, U is empty
                 opt.add(  # pyright: ignore[reportUnknownMemberType]
-                    U_f_E[v][u] == False  # noqa: E712
+                    U_f_E[v][u] == False  # ruff: ignore[true-false-comparison]
                 )
             else:
                 u_terms: list[object] = []
@@ -418,17 +418,17 @@ def solve_dgfem_materialization_eq_using_z3(
             assert c[v] == 0 or c[v] == 1
             for u in einsum_nodes:
                 opt.add(  # pyright: ignore[reportUnknownMemberType]
-                    U_f_E[v][u] == False  # noqa: E712
+                    U_f_E[v][u] == False  # ruff: ignore[true-false-comparison]
                 )
         # Boundary Condition: f(v) = 0 if preds(v) is empty
         if not preds[v]:
             opt.add(  # pyright: ignore[reportUnknownMemberType]
-                f[v] == False  # noqa: E712
+                f[v] == False  # ruff: ignore[true-false-comparison]
             )
         # Boundary Condition: f(v) = 1 if succs(v) is empty
         if not succs[v]:
             opt.add(  # pyright: ignore[reportUnknownMemberType]
-                f[v] == True  # noqa: E712
+                f[v] == True  # ruff: ignore[true-false-comparison]
             )
 
     # Minimize the sum of materialized nodes (See Defn. (TODO) of the paper.)
