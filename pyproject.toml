@@ -72,7 +72,7 @@ extend-select = [
   "TC",
 ]
 
-ignore = ["RUF052", "RUF067", "B023", "C901", "N806", "UP035"]
+ignore = ["used-dummy-variable", "non-empty-init-module", "function-uses-loop-variable", "complex-structure", "non-lowercase-variable-in-function", "deprecated-import"]
 
 [tool.black]
 line-length = 85
