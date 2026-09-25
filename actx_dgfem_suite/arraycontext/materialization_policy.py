@@ -4,21 +4,14 @@ import dataclasses as dc
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
-import feinsum as fnsm
-import numpy as np
 import pytato as pt
 from bidict import frozenbidict
 from constantdict import constantdict
-from pytato.array import EinsumReductionAxis, ShapeType
 from pytools import UniqueNameGenerator
 from typing_extensions import override
 
-from actx_dgfem_suite.arraycontext.metadata import EinsumAxisTag, IncomingEisumTag
-
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
-
-    from pytools.tag import Tag
+    from collections.abc import Iterable
 
 
 def _fset_union(s: Iterable[frozenset[pt.Array]]) -> frozenset[pt.Array]:
@@ -293,32 +286,9 @@ def get_einsum_tiebreak_cost(ensm: pt.Einsum) -> int:
         return 4
 
 
-def _pt_einsum_to_feinsum(expr: pt.Einsum) -> fnsm.BatchedEinsum:
-    from pytato.utils import get_einsum_subscript_str
-
-    vng = UniqueNameGenerator()
-    arg_to_name: dict[pt.Array, str] = {}
-    for arg in expr.args:
-        if arg not in arg_to_name:
-            arg_to_name[arg] = vng("arg")
-
-    def _to_int_shape(shape: ShapeType) -> tuple[int, ...]:
-        for s in shape:
-            assert isinstance(s, (int, np.integer))
-        return cast("tuple[int, ...]", shape)
-
-    return fnsm.einsum(
-        get_einsum_subscript_str(expr),
-        *[
-            fnsm.Array(arg_to_name[arg], _to_int_shape(arg.shape), arg.dtype)
-            for arg in expr.args
-        ],
-    )
-
-
 def solve_dgfem_materialization_eq_using_z3(
     dfg: DataFlowGraph,
-) -> tuple[frozenset[pt.Array], Mapping[pt.Array, Tag]]:
+) -> frozenset[pt.Array]:
     import z3  # pyright: ignore[reportMissingTypeStubs]
 
     V = frozenset(dfg.node_to_id.values())
@@ -472,34 +442,11 @@ def solve_dgfem_materialization_eq_using_z3(
                 i += val
             print("Z3 solver stats:", opt.statistics())
 
-        materialized_nodes_to_einsum_evaled = {
-            v: cast(
-                "pt.Einsum",
-                dfg.node_to_id.inv[
-                    (
-                        v
-                        if c[v] == 1
-                        else next(
-                            iter(
-                                u for u in einsum_nodes if z3.is_true(m[U_f_E[v][u]])
-                            )
-                        )
-                    )
-                ],
-            )
-            for v in V
-            if z3.is_true(m[f[v]])
-        }
         return frozenset(
             {
                 dfg.node_to_id.inv[v]
                 for v in V
                 if z3.is_true(m[f[v]]) and (len(succs[v]) > 0)
-            }
-        ), constantdict(
-            {
-                dfg.node_to_id.inv[v]: IncomingEisumTag(_pt_einsum_to_feinsum(ensm))
-                for v, ensm in materialized_nodes_to_einsum_evaled.items()
             }
         )
     else:
@@ -508,14 +455,14 @@ def solve_dgfem_materialization_eq_using_z3(
 
 def get_arrays_to_materialize(
     dfg: DataFlowGraph,
-) -> tuple[frozenset[pt.Array], Mapping[pt.Array, Tag]]:
+) -> frozenset[pt.Array]:
     return solve_dgfem_materialization_eq_using_z3(dfg)
 
 
 def materialize_for_dgfem_opt(
     expr: pt.transform.ArrayOrNamesTc,
 ) -> pt.transform.ArrayOrNamesTc:
-    materialized_arrays, tags = get_arrays_to_materialize(get_dataflow_graph(expr))
+    materialized_arrays = get_arrays_to_materialize(get_dataflow_graph(expr))
 
     def materialize_if_needed(
         expr: pt.transform.ArrayOrNames,
@@ -523,58 +470,9 @@ def materialize_for_dgfem_opt(
         new_expr = expr
         if expr in materialized_arrays:
             new_expr = new_expr.tagged(pt.tags.ImplStored())
-        if isinstance(expr, pt.Array):
-            try:
-                tag = tags[expr]
-            except KeyError:
-                pass
-            else:
-                new_expr = new_expr.tagged(tag)
-
         return new_expr
 
     return pt.transform.map_and_copy(expr, materialize_if_needed)
-
-
-def propagate_einsum_axes_tags(
-    expr: pt.transform.ArrayOrNamesTc,
-) -> pt.transform.ArrayOrNamesTc:
-    def propagate_axis_t(
-        expr: pt.transform.ArrayOrNames,
-    ) -> pt.transform.ArrayOrNames:
-        if isinstance(expr, pt.Array) and expr.tags_of_type(IncomingEisumTag):
-            (incoming_einsum_tag,) = expr.tags_of_type(IncomingEisumTag)
-            assert expr.shape == incoming_einsum_tag.einsum.shape
-            new_axes = tuple(
-                axis.tagged(
-                    EinsumAxisTag.from_non_canon_form(
-                        incoming_einsum_tag.einsum, idx
-                    )
-                )
-                for idx, axis in zip(
-                    incoming_einsum_tag.einsum.out_idx_set, expr.axes, strict=True
-                )
-            )
-            expr = expr.replace_if_different(axes=new_axes)
-        if isinstance(expr, pt.Einsum):
-            fnsm_einsum = _pt_einsum_to_feinsum(expr)
-            seen_redn_axis: set[EinsumReductionAxis] = set()
-            for acc_descrs, in_idx_list in zip(
-                expr.access_descriptors, fnsm_einsum.in_idx_sets, strict=True
-            ):
-                for in_idx, acc_descr in zip(in_idx_list, acc_descrs, strict=True):
-                    if (
-                        isinstance(acc_descr, EinsumReductionAxis)
-                        and acc_descr not in seen_redn_axis
-                    ):
-                        expr = expr.with_tagged_reduction(
-                            acc_descr,
-                            EinsumAxisTag.from_non_canon_form(fnsm_einsum, in_idx),
-                        )
-                        seen_redn_axis.add(acc_descr)
-        return expr
-
-    return pt.transform.map_and_copy(expr, propagate_axis_t)
 
 
 def make_einsum_operands_as_subst(

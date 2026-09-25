@@ -37,7 +37,6 @@ from actx_dgfem_suite.arraycontext.mass_inverse_fuser import fuse_mass_inverses
 from actx_dgfem_suite.arraycontext.materialization_policy import (
     make_einsum_operands_as_subst,
     materialize_for_dgfem_opt,
-    propagate_einsum_axes_tags,
 )
 from actx_dgfem_suite.arraycontext.push_einsum_indices import (
     push_einsum_indices_to_operands,
@@ -201,7 +200,6 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = transpose_deriv_matrix_in_grad_and_div(dag, self)
         dag = pt.transform.deduplicate_data_wrappers(dag)
         dag = dedup_datawrappers_having_same_value(dag, self)
-        dag = propagate_einsum_axes_tags(dag)
         dag = make_einsum_operands_as_subst(dag)
 
         return dag
@@ -213,15 +211,6 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         from actx_dgfem_suite.arraycontext.disjoint_loop_nest_barriers import (
             add_gbarrier_between_disjoint_loop_nests,
         )
-        from actx_dgfem_suite.arraycontext.metadata import (
-            IncomingEisumTag,
-        )
-
-        if not any(
-            tv.tags_of_type(IncomingEisumTag)
-            for tv in t_unit.default_entrypoint.temporary_variables.values()
-        ):
-            raise NotImplementedError
 
         # Make offsets as 0. (FIXME: move this to loopy knl invocation)
         # -----------------------------------------------------------------------

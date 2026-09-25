@@ -98,15 +98,6 @@ class OptimizedDGFemIRInspectingActx(DGFEMOptimizerArrayContext):
         from actx_dgfem_suite.arraycontext.kennedy_loop_fusion import (
             apply_kennedy_loop_fusion_for_einsum_tags,
         )
-        from actx_dgfem_suite.arraycontext.metadata import (
-            IncomingEisumTag,
-        )
-
-        if not any(
-            tv.tags_of_type(IncomingEisumTag)
-            for tv in t_unit.default_entrypoint.temporary_variables.values()
-        ):
-            raise NotImplementedError
 
         t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
         t_unit = add_gbarrier_between_disjoint_loop_nests(t_unit)
