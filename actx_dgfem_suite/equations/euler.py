@@ -76,7 +76,10 @@ def gaussian_profile(
     r = actx.np.sqrt(
         cast(
             "_DOFArray",
-            np.dot(rel_center, rel_center),  # pyright: ignore[reportCallIssue, reportArgumentType]
+            np.dot(
+                rel_center,  # pyright: ignore[reportCallIssue, reportArgumentType]
+                rel_center,  # pyright: ignore[reportArgumentType]
+            ),
         )
     )
     expterm = rhoamp * actx.np.exp(1 - r**2)
@@ -109,7 +112,10 @@ def make_pulse(
     r2 = (
         cast(
             "_DOFArray",
-            np.dot(rel_center, rel_center),  # pyright: ignore[reportCallIssue, reportArgumentType]
+            np.dot(
+                rel_center,  # pyright: ignore[reportCallIssue, reportArgumentType]
+                rel_center,  # pyright: ignore[reportArgumentType]
+            ),
         )
         / rms2
     )
