@@ -229,7 +229,10 @@ def bump(
         * actx.np.exp(
             -cast(
                 "DOFArray",
-                np.dot(center_dist, center_dist),  # pyright: ignore[reportCallIssue, reportArgumentType]
+                np.dot(
+                    center_dist,  # pyright: ignore[reportCallIssue, reportArgumentType]
+                    center_dist,  # pyright: ignore[reportArgumentType]
+                ),
             )
             / source_width**2
         ),
