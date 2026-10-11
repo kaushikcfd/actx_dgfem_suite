@@ -184,6 +184,9 @@ class CuPyArrayContext(ArrayContext):
     def permits_advanced_indexing(self):
         return True
 
+    def get_current_stream(self):
+        return cp.cuda.get_current_stream()
+
     # }}}
 
 
