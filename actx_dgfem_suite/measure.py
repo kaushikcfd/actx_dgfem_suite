@@ -14,6 +14,15 @@ from arraycontext import (
 )
 
 
+def _is_cupy_actx_t(actx_t: type[ArrayContext]) -> bool:
+    # Check the MRO by name to avoid introducing a dependency on the CuPy module.
+    return any(
+        base.__module__ == "actx_dgfem_suite.arraycontext.cupy_actx"
+        and base.__name__ == "CuPyArrayContext"
+        for base in actx_t.__mro__
+    )
+
+
 def instantiate_actx_t[ActxT: (ArrayContext)](actx_t: type[ActxT]) -> ActxT:
     gc.collect()
 
@@ -42,7 +51,7 @@ def instantiate_actx_t[ActxT: (ArrayContext)](actx_t: type[ActxT]) -> ActxT:
             "jax_enable_x64", True
         )
         return actx_t()
-    elif issubclass(actx_t, NumpyArrayContext):
+    elif issubclass(actx_t, NumpyArrayContext) or _is_cupy_actx_t(actx_t):
         return actx_t()
     else:
         raise NotImplementedError(actx_t)
@@ -56,5 +65,7 @@ def finish_command_queue(actx: ArrayContext) -> None:
         pass
     elif isinstance(actx, NumpyArrayContext):
         pass
+    elif _is_cupy_actx_t(type(actx)):
+        actx.get_current_stream().synchronize()  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
     else:
         raise NotImplementedError(type(actx))

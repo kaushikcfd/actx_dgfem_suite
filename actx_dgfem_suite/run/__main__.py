@@ -20,7 +20,6 @@ from arraycontext import (
     PytatoJAXArrayContext,
     rec_multimap_array_container,
 )
-from bidict import bidict
 from meshmode.array_context import (
     PyOpenCLArrayContext as BasePyOpenCLArrayContext,
 )
@@ -139,6 +138,7 @@ def main(
     equations: Sequence[str],
     dims: Sequence[int],
     degrees: Sequence[int],
+    actx_names: Sequence[str],
     actx_ts: Sequence[type[ArrayContext]],
     verify: bool,
 ):
@@ -175,12 +175,7 @@ def main(
             table = [
                 [
                     "",
-                    *[
-                        _NAME_TO_ACTX_CLASS.inv[
-                            actx_t
-                        ]  # pyright: ignore[reportArgumentType]
-                        for actx_t in actx_ts
-                    ],
+                    *actx_names,
                     "Roofline",
                 ]
             ]
@@ -206,15 +201,24 @@ def main(
             print(tabulate(table, tablefmt="fancy_grid"))
 
 
-_NAME_TO_ACTX_CLASS = bidict(
-    {
+def _get_actx_t(name: str) -> type[ArrayContext]:
+    if name == "cupy":
+        try:
+            from actx_dgfem_suite.arraycontext.cupy_actx import CuPyArrayContext
+        except ImportError as exc:
+            raise ValueError(
+                "CuPy array context requested, but CuPy could not be imported"
+            ) from exc
+
+        return CuPyArrayContext
+
+    return {
         "numpy": NumpyArrayContext,
         "pyopencl": PyOpenCLArrayContext,
         "jax:nojit": EagerJAXArrayContext,
         "jax:jit": PytatoJAXArrayContext,
         "pytato:dgfem_opt": DGFEMOptimizerArrayContext,
-    }
-)
+    }[name]
 
 
 @dc.dataclass(frozen=True)
@@ -276,7 +280,7 @@ if __name__ == "__main__":
         type=str,
         help=(
             "comma separated array context names"
-            " (for ex. 'numpy,pyopencl,jax:jit,pytato:dgfem_opt')"
+            " (for ex. 'numpy,cupy,pyopencl,jax:jit,pytato:dgfem_opt')"
         ),
         required=True,
     )
@@ -288,10 +292,17 @@ if __name__ == "__main__":
     )
 
     args = CLIArgs(**vars(parser.parse_args()))  # pyright: ignore[reportAny]
+    actx_names = [k.strip() for k in args.actxs.split(",")]
+    try:
+        actx_ts = [_get_actx_t(name) for name in actx_names]
+    except ValueError as exc:
+        parser.error(str(exc))
+
     main(
         equations=[k.strip() for k in args.equations.split(",")],
         dims=[int(k.strip()) for k in args.dims.split(",")],
         degrees=[int(k.strip()) for k in args.degrees.split(",")],
-        actx_ts=[_NAME_TO_ACTX_CLASS[k] for k in args.actxs.split(",")],
+        actx_names=actx_names,
+        actx_ts=actx_ts,
         verify=not args.no_verify,
     )
