@@ -9,7 +9,8 @@ dependencies:
 - pocl # replace with ocl-icd for system ICD loaders
 - pyopencl
 - jax
-- jaxlib # replace with `jaxlib=*=*cuda*` for gpu builds
+- jaxlib # replace with `jaxlib=*=*cuda*` for cuda builds
+# - cupy # enable for cuda builds
 - pip
 - pytest
 - basedpyright
