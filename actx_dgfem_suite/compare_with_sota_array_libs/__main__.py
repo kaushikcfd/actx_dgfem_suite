@@ -1,6 +1,6 @@
 __doc__ = """
 A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
-``python -m actx_dgfem_suite.run -h`` for a detailed description on how to run
+``python -m actx_dgfem_suite.compare_with_sota_array_libs -h`` for a detailed description on how to run
 the benchmarks.
 """
 
@@ -232,7 +232,7 @@ class CLIArgs:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        prog="python -m actx_dgfem_suite.run",
+        prog="python -m actx_dgfem_suite.compare_with_sota_array_libs",
         description="Run DG-FEM benchmarks for arraycontexts",
     )
 

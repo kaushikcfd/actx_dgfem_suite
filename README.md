@@ -20,7 +20,7 @@ $ pip install -e .
 ## HOWTO: Run the timing suite
 
 ```console
-$ python -O -m actx_dgfem_suite.run --equations "wave,euler,maxwell" \
+$ python -O -m actx_dgfem_suite.compare_with_sota_array_libs --equations "wave,euler,maxwell" \
                                     --degrees "1,2,3,4" \
                                     --dims "3" \
                                     --actxs "numpy,pyopencl,jax:jit,pytato:dgfem_opt"
@@ -40,7 +40,7 @@ Supported equations: `wave`, `euler`, `maxwell`, and their `tiny_` variants
 
 ## HOWTO: Add new arraycontext implementations to compare
 
-Update `_NAME_TO_ACTX_CLASS` in `actx_dgfem_suite/run/__main__.py` to include
+Update `_NAME_TO_ACTX_CLASS` in `actx_dgfem_suite/compare_with_sota_array_libs/__main__.py` to include
 your arraycontext type. Happy to accept PRs.
 
 
