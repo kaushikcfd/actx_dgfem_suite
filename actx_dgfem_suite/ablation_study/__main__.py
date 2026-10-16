@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from feinsum.diagnostics import EinsumTunitMatchError
+
 __doc__ = """
 A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
 ``python -m actx_dgfem_suite.compare_with_sota_array_libs -h`` for a detailed
@@ -13,7 +15,6 @@ import pyopencl as cl
 import pyopencl.array as cl_array
 import pyopencl.tools as cl_tools
 import pytato as pt
-from arraycontext.impl.pytato import PytatoPyOpenCLArrayContext
 from tabulate import tabulate
 from typing_extensions import override
 
@@ -24,6 +25,7 @@ from actx_dgfem_suite.arraycontext.constants_folder import (
 from actx_dgfem_suite.arraycontext.deduplicate_by_value import (
     dedup_datawrappers_having_same_value,
 )
+from actx_dgfem_suite.arraycontext.dgfem_optimizer import DGFEMOptimizerArrayContext
 from actx_dgfem_suite.arraycontext.distribute_operands_of_mass_einsum import (
     apply_distributive_law_to_mass_inverse,
 )
@@ -100,7 +102,7 @@ def transform_batched_einsum_loop_nests(
     return t_unit
 
 
-class PhaseAblationArrayContext(PytatoPyOpenCLArrayContext):
+class PhaseAblationArrayContext(DGFEMOptimizerArrayContext):
     """
     An array context that applies the same transformation phases
     as :class:DGFEMOptimizerArrayContext, but avoids the phase
@@ -130,6 +132,12 @@ class PhaseAblationArrayContext(PytatoPyOpenCLArrayContext):
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
         assert isinstance(dag, pt.DictOfNamedArrays)
+        if all(isinstance(ary.expr, pt.DataWrapper) for ary in dag.values()):
+            # compile() also calls this hook on thawed, frozen inputs to infer
+            # placeholder metadata. These already-concrete arrays need no
+            # DG-FEM transformations (and no materialization).
+            return dag
+
         if self.phase_to_skip != 1:
             dag = pt.rewrite_einsums_with_no_broadcasts(dag)
             dag = apply_distributive_law_to_mass_inverse(dag)
@@ -177,12 +185,35 @@ class PhaseAblationArrayContext(PytatoPyOpenCLArrayContext):
         del knl
 
         if self.phase_to_skip != 4:
-            t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
+            import feinsum as fnsm
+            import loopy.match as lp_match
+
+            try:
+                # Only fuse programs that fit the einsum heuristic. In
+                # particular, unmatched reductions must not be treated as
+                # elementwise operations by the fusion fallback.
+                for insn in t_unit.default_entrypoint.instructions:
+                    if not isinstance(insn, lp.BarrierInstruction):
+                        fnsm.get_a_matched_einsum(
+                            t_unit, insn_match=lp_match.Id(insn.id)
+                        )
+            except EinsumTunitMatchError:
+                pass
+            else:
+                t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
 
         t_unit = add_gbarrier_between_disjoint_loop_nests(t_unit)
 
         if self.phase_to_skip != 5:
-            t_unit = transform_batched_einsum_loop_nests(t_unit, self.queue.device)
+            try:
+                t_unit = transform_batched_einsum_loop_nests(
+                    t_unit, self.queue.device
+                )
+            except EinsumTunitMatchError:
+                # maybe going with a simple parallelization strategy here...
+                t_unit = split_iteration_domain_across_work_items(
+                    t_unit, self.queue.device
+                )
         else:
             # maybe going with a simple parallelization strategy here...
             t_unit = split_iteration_domain_across_work_items(
@@ -260,7 +291,7 @@ def main(cl_ctx: cl.Context) -> None:
     phase_ids = range(1, 6)
     table = [["Function space", *(f"Q_{phase_id}" for phase_id in phase_ids)]]
 
-    for degree in range(1, 2):
+    for degree in range(1, 5):
         flop_rates = [
             _get_flop_rate(
                 cl_ctx,
