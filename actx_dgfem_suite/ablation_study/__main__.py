@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 __doc__ = """
 A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
 ``python -m actx_dgfem_suite.compare_with_sota_array_libs -h`` for a detailed description on how to run
@@ -16,6 +18,36 @@ from arraycontext.impl.pytato import PytatoPyOpenCLArrayContext
 from tabulate import tabulate
 from typing_extensions import override
 
+from actx_dgfem_suite.arraycontext.batched_einsum_loop_transforms import (
+    transform_batched_einsum_loop_nests,
+)
+from actx_dgfem_suite.arraycontext.constants_folder import (
+    fold_constants_in_einsum_indirections,
+)
+from actx_dgfem_suite.arraycontext.deduplicate_by_value import (
+    dedup_datawrappers_having_same_value,
+)
+from actx_dgfem_suite.arraycontext.distribute_operands_of_mass_einsum import (
+    apply_distributive_law_to_mass_inverse,
+)
+from actx_dgfem_suite.arraycontext.kennedy_loop_fusion import (
+    apply_kennedy_loop_fusion_for_einsum_tags,
+)
+from actx_dgfem_suite.arraycontext.mass_inverse_fuser import fuse_mass_inverses
+from actx_dgfem_suite.arraycontext.materialization_policy import (
+    make_einsum_operands_as_subst,
+    materialize_for_dgfem_opt,
+)
+from actx_dgfem_suite.arraycontext.push_einsum_indices import (
+    push_einsum_indices_to_operands,
+)
+from actx_dgfem_suite.arraycontext.split_iteration_domains import (
+    split_iteration_domain_across_work_items,
+)
+from actx_dgfem_suite.arraycontext.transpose_consts_in_einsums import (
+    transpose_deriv_matrix_in_grad_and_div,
+    transpose_lift_matrix_in_facemass,
+)
 from actx_dgfem_suite.measure import finish_command_queue
 from actx_dgfem_suite.perf_analysis import get_float64_flops
 from actx_dgfem_suite.rhs_builder import get_rhs
@@ -41,16 +73,80 @@ class PhaseAblationArrayContext(PytatoPyOpenCLArrayContext):
         self.phase_to_skip = phase_to_skip
 
     @override
+    def clone(self) -> PhaseAblationArrayContext:
+        return PhaseAblationArrayContext(
+            self.phase_to_skip, self.queue, self.allocator
+        )
+
+    @override
     def transform_dag(
         self, dag: pt.AbstractResultWithNamedArrays
     ) -> pt.AbstractResultWithNamedArrays:
-        return super().transform_dag(dag)
+        assert isinstance(dag, pt.DictOfNamedArrays)
+        if self.phase_to_skip != 1:
+            dag = pt.rewrite_einsums_with_no_broadcasts(dag)
+            dag = apply_distributive_law_to_mass_inverse(dag)
+            dag = push_einsum_indices_to_operands(dag)
+            dag = fuse_mass_inverses(dag)
+
+        if self.phase_to_skip != 2:
+            dag = materialize_for_dgfem_opt(dag, use_tiebreaks=False)
+        else:
+            # choose a naive materialization policy.
+            dag = pt.transform.materialize_with_mpms(dag)
+
+        if self.phase_to_skip != 3:
+            dag = pt.push_index_to_materialized_nodes(dag)
+
+        dag = pt.transform.deduplicate_data_wrappers(dag)
+        dag = dedup_datawrappers_having_same_value(dag, self)
+        dag = fold_constants_in_einsum_indirections(dag, self)
+        dag = transpose_lift_matrix_in_facemass(dag, self)
+        dag = transpose_deriv_matrix_in_grad_and_div(dag, self)
+        dag = pt.transform.deduplicate_data_wrappers(dag)
+        dag = dedup_datawrappers_having_same_value(dag, self)
+        dag = make_einsum_operands_as_subst(dag)
+
+        return dag
 
     @override
     def transform_loopy_program(
         self, t_unit: lp.TranslationUnit
     ) -> lp.TranslationUnit:
-        return super().transform_loopy_program(t_unit)
+        from actx_dgfem_suite.arraycontext.disjoint_loop_nest_barriers import (
+            add_gbarrier_between_disjoint_loop_nests,
+        )
+
+        # Make offsets as 0. (FIXME: move this to loopy knl invocation)
+        # -----------------------------------------------------------------------
+        knl = t_unit.default_entrypoint
+        knl = knl.copy(
+            args=tuple(
+                arg.copy(offset=0)  # pyright: ignore[reportUnknownMemberType]
+                for arg in knl.args
+            )
+        )
+        t_unit = t_unit.with_kernel(knl)
+        del knl
+
+        if self.phase_to_skip != 4:
+            t_unit = apply_kennedy_loop_fusion_for_einsum_tags(t_unit)
+
+        t_unit = add_gbarrier_between_disjoint_loop_nests(t_unit)
+
+        if self.phase_to_skip != 5:
+            t_unit = transform_batched_einsum_loop_nests(t_unit, self.queue.device)
+        else:
+            # maybe going with a simple parallelization strategy here...
+            t_unit = split_iteration_domain_across_work_items(
+                t_unit, self.queue.device
+            )
+
+        t_unit = lp.set_options(  # pyright: ignore[reportUnknownMemberType]
+            t_unit,
+            build_options=["-cl-fast-relaxed-math", "-cl-mad-enable"],
+        )
+        return t_unit
 
 
 def _get_flop_rate(
@@ -60,8 +156,9 @@ def _get_flop_rate(
     degree: int,
     phase_to_skip: int | None,
 ) -> float:
-    cq = cl.CommandQueue(cl_ctx)
+    gc.collect()
 
+    cq = cl.CommandQueue(cl_ctx)
     alloc = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(cq))
     actx = PhaseAblationArrayContext(phase_to_skip, cq, alloc)
     rhs, args = get_rhs(equation, actx, dim, degree)  # pyright: ignore[reportAny]
@@ -72,7 +169,7 @@ def _get_flop_rate(
     i_warmup = 0
     t_warmup = 0.0
 
-    while i_warmup < 5 and t_warmup < 2:
+    while i_warmup < 5 and t_warmup < 0.5:
         finish_command_queue(actx)
         t_start = time()
         compiled_rhs(*args)
@@ -105,14 +202,22 @@ def _get_flop_rate(
 
 
 def main(cl_ctx: cl.Context) -> None:
+    device_name = cl_ctx.devices[0].name
+    if device_name == "NVIDIA TITAN V":
+        equation = "wave"
+    elif device_name == "NVIDIA H200 NVL":
+        equation = "large_wave"
+    else:
+        equation = "tiny_wave"
+
     phase_ids = range(1, 6)
     table = [["Function space", *(f"Q_{phase_id}" for phase_id in phase_ids)]]
 
-    for degree in range(1, 5):
+    for degree in range(1, 2):
         flop_rates = [
             _get_flop_rate(
                 cl_ctx,
-                equation="wave",
+                equation=equation,
                 dim=3,
                 degree=degree,
                 phase_to_skip=phase_id,
