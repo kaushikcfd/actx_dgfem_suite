@@ -109,7 +109,7 @@ def _is_divergence_einsum(batched_einsum: fnsm.BatchedEinsum) -> bool:
 
 
 @lp.for_each_kernel
-def _merge_domains_for_potential_loop_nests(kernel: lp.LoopKernel) -> lp.LoopKernel:
+def merge_domains_for_potential_loop_nests(kernel: lp.LoopKernel) -> lp.LoopKernel:
     import namedisl as nisl
     from feinsum.loopy_utils import decouple_domain
 
@@ -142,7 +142,7 @@ def _merge_domains_for_potential_loop_nests(kernel: lp.LoopKernel) -> lp.LoopKer
 def transform_batched_einsum_loop_nests(
     t_unit: lp.TranslationUnit, cl_device: cl.Device
 ) -> lp.TranslationUnit:
-    t_unit = _merge_domains_for_potential_loop_nests(t_unit)
+    t_unit = merge_domains_for_potential_loop_nests(t_unit)
 
     # use feinsum to transform batched einsums or fallback to libparanumal transform
     for loop_nest in sorted(

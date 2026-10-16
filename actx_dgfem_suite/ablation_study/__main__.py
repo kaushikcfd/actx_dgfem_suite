@@ -2,9 +2,8 @@ from __future__ import annotations
 
 __doc__ = """
 A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
-``python -m actx_dgfem_suite.compare_with_sota_array_libs -h`` for a detailed description on how to run
-the benchmarks.
-"""
+``python -m actx_dgfem_suite.compare_with_sota_array_libs -h`` for a detailed
+description on how to run the benchmarks. """
 
 import gc
 from time import time
@@ -18,9 +17,7 @@ from arraycontext.impl.pytato import PytatoPyOpenCLArrayContext
 from tabulate import tabulate
 from typing_extensions import override
 
-from actx_dgfem_suite.arraycontext.batched_einsum_loop_transforms import (
-    transform_batched_einsum_loop_nests,
-)
+from actx_dgfem_suite.arraycontext._loop_nest_utils import get_loop_nest
 from actx_dgfem_suite.arraycontext.constants_folder import (
     fold_constants_in_einsum_indirections,
 )
@@ -43,6 +40,7 @@ from actx_dgfem_suite.arraycontext.push_einsum_indices import (
 )
 from actx_dgfem_suite.arraycontext.split_iteration_domains import (
     split_iteration_domain_across_work_items,
+    split_loop_nest_across_work_items,
 )
 from actx_dgfem_suite.arraycontext.transpose_consts_in_einsums import (
     transpose_deriv_matrix_in_grad_and_div,
@@ -51,6 +49,55 @@ from actx_dgfem_suite.arraycontext.transpose_consts_in_einsums import (
 from actx_dgfem_suite.measure import finish_command_queue
 from actx_dgfem_suite.perf_analysis import get_float64_flops
 from actx_dgfem_suite.rhs_builder import get_rhs
+
+
+def transform_batched_einsum_loop_nests(
+    t_unit: lp.TranslationUnit, cl_device: cl.Device
+) -> lp.TranslationUnit:
+    import feinsum as fnsm
+    import loopy.match as lp_match
+    from feinsum.diagnostics import NoFactInDatabaseError
+
+    from actx_dgfem_suite.arraycontext.batched_einsum_loop_transforms import (
+        merge_domains_for_potential_loop_nests,
+    )
+
+    t_unit = merge_domains_for_potential_loop_nests(t_unit)
+
+    # use feinsum to transform batched einsums or fallback to libparanumal transform
+    for loop_nest in sorted(
+        {
+            insn.within_inames
+            for insn in t_unit.default_entrypoint.instructions
+            if not isinstance(insn, lp.BarrierInstruction)
+        },
+        key=sorted,
+    ):
+        within = lp_match.And(tuple(lp_match.Iname(iname) for iname in loop_nest))
+        batched_einsum, _ = fnsm.get_a_matched_einsum(
+            t_unit,
+            insn_match=within,
+            long_dim_length=36,
+        )
+        try:
+            transform = fnsm.retrieve(batched_einsum, cl_device)
+        except NoFactInDatabaseError:
+            kernel = t_unit.default_entrypoint
+            representative_insn = next(
+                insn
+                for insn in kernel.instructions
+                if insn.within_inames == loop_nest
+            )
+            kernel = split_loop_nest_across_work_items(
+                kernel,
+                get_loop_nest(kernel, representative_insn),
+                cl_device,
+            )
+            t_unit = t_unit.with_kernel(kernel)
+        else:
+            t_unit = transform(t_unit, insn_match=within)
+
+    return t_unit
 
 
 class PhaseAblationArrayContext(PytatoPyOpenCLArrayContext):
