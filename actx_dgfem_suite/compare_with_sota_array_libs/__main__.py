@@ -1,7 +1,7 @@
 __doc__ = """
 A binary for running DG-FEM benchmarks for an array of arraycontexts. Call as
-``python -m actx_dgfem_suite.compare_with_sota_array_libs -h`` for a detailed description on how to run
-the benchmarks.
+``python -m actx_dgfem_suite.compare_with_sota_array_libs -h`` for a detailed
+description on how to run the benchmarks.
 """
 
 import argparse
