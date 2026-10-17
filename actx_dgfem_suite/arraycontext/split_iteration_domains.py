@@ -114,6 +114,19 @@ def _split_loop_nest_across_work_items(
     return kernel
 
 
+def split_loop_nest_across_work_items(
+    kernel: lp.LoopKernel,
+    loop_nest: LoopNest,
+    cl_device: cl.Device,
+) -> lp.LoopKernel:
+    iname_to_length = {
+        iname: get_iname_length(kernel, iname) for iname in loop_nest.inames
+    }
+    return _split_loop_nest_across_work_items(
+        kernel, loop_nest, iname_to_length, cl_device
+    )
+
+
 @lp.for_each_kernel
 def split_iteration_domain_across_work_items(
     kernel: lp.LoopKernel,
@@ -122,15 +135,9 @@ def split_iteration_domain_across_work_items(
     insn_id_to_loop_nest: Mapping[str, LoopNest] = {
         insn.id: get_loop_nest(kernel, insn) for insn in kernel.instructions
     }
-    iname_to_length = {
-        iname: get_iname_length(kernel, iname) for iname in kernel.all_inames()
-    }
-
     all_loop_nests = frozenset(insn_id_to_loop_nest.values())
 
     for loop_nest in sorted(all_loop_nests, key=lambda k: sorted(k.inames)):
-        kernel = _split_loop_nest_across_work_items(
-            kernel, loop_nest, iname_to_length, cl_device
-        )
+        kernel = split_loop_nest_across_work_items(kernel, loop_nest, cl_device)
 
     return kernel

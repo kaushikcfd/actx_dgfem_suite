@@ -193,6 +193,8 @@ class DGFEMOptimizerArrayContext(PytatoPyOpenCLArrayContext):
         dag = fuse_mass_inverses(dag)
         dag = materialize_for_dgfem_opt(dag)
         dag = pt.push_index_to_materialized_nodes(dag)
+        # TODO: We do dedup twice once here and once before the return. Are they
+        # really needed??
         dag = pt.transform.deduplicate_data_wrappers(dag)
         dag = dedup_datawrappers_having_same_value(dag, self)
         dag = fold_constants_in_einsum_indirections(dag, self)
