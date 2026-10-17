@@ -288,8 +288,16 @@ def main(cl_ctx: cl.Context) -> None:
     else:
         equation = "tiny_wave"
 
-    phase_ids = range(1, 6)
-    table = [["Function space", *(f"Q_{phase_id}" for phase_id in phase_ids)]]
+    phase_ids = [*list(range(1, 6)), None]
+    table = [
+        [
+            "Function space",
+            *(
+                f"Q_{phase_id}" if phase_id else "Q_baseline"
+                for phase_id in phase_ids
+            ),
+        ]
+    ]
 
     for degree in range(1, 5):
         flop_rates = [
