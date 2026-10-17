@@ -288,7 +288,7 @@ def solve_dgfem_materialization_eq_using_z3(
 
 
 def get_arrays_to_materialize(
-    dfg: DataFlowGraph, *, use_tiebreaks: bool = False
+    dfg: DataFlowGraph, *, use_tiebreaks: bool = True
 ) -> frozenset[pt.Array]:
     """
     :param use_tiebreaks: If *True*, ensures that a deterministic ordering is
@@ -298,13 +298,15 @@ def get_arrays_to_materialize(
 
 
 def materialize_for_dgfem_opt(
-    expr: pt.transform.ArrayOrNamesTc, *, use_tiebreaks: bool = False
+    expr: pt.transform.ArrayOrNamesTc, *, use_tiebreaks: bool = True
 ) -> pt.transform.ArrayOrNamesTc:
     """
     :param use_tiebreaks: If *True*, ensures that a deterministic ordering is
         returned each time at the cost of additional computations.
     """
-    materialized_arrays = get_arrays_to_materialize(get_dataflow_graph(expr))
+    materialized_arrays = get_arrays_to_materialize(
+        get_dataflow_graph(expr), use_tiebreaks=use_tiebreaks
+    )
 
     def materialize_if_needed(
         expr: pt.transform.ArrayOrNames,
