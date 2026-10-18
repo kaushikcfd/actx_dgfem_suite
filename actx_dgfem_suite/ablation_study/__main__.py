@@ -144,7 +144,7 @@ class PhaseAblationArrayContext(DGFEMOptimizerArrayContext):
             dag = push_einsum_indices_to_operands(dag)
             dag = fuse_mass_inverses(dag)
 
-        if self.phase_to_skip is None:
+        if self.phase_to_skip is None or self.phase_to_skip > 2:
             dag = materialize_for_dgfem_opt(dag)
         elif self.phase_to_skip != 2:
             dag = materialize_for_dgfem_opt(dag, use_tiebreaks=False)

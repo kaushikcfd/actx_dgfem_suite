@@ -241,7 +241,7 @@ def solve_dgfem_materialization_eq_using_z3(
         tie_break_0 = z3.Sum(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             [
                 z3.If(  # pyright: ignore[reportUnknownMemberType]
-                    f[v], int(c[v] == 1), int(c[v] == 1)
+                    f[v], int(c[v] == 1), int(c[v] != 1)
                 )
                 for v in V
             ]
