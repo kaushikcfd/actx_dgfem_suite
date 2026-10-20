@@ -30,6 +30,14 @@ Supported equations: `wave`, `euler`, `maxwell`, and their `tiny_` variants
 (`tiny_wave`, `tiny_euler`, `tiny_maxwell`) which use a smaller mesh
 (~1000 DOFs) suitable for quick correctness checks.
 
+Logging is disabled by default. Opt in with `--logging=INFO` (or `DEBUG`,
+`WARNING`, `ERROR`, `CRITICAL`); level names are case-insensitive. For example:
+
+```console
+$ python -m actx_dgfem_suite.compare_with_sota_array_libs --equations tiny_wave \
+    --dims 3 --degrees 2 --actxs cupy --no-verify --logging=INFO
+```
+
 
 ## HOWTO: Add new equations to the suite
 

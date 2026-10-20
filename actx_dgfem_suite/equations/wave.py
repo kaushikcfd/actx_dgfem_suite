@@ -54,7 +54,6 @@ from pytools.obj_array import flat, new_1d
 from actx_dgfem_suite.utils import get_nel_1d_for_regular_rect_mesh
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 # {{{ wave equation bits

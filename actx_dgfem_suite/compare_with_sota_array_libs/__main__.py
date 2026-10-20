@@ -7,6 +7,7 @@ description on how to run the benchmarks.
 import argparse
 import dataclasses as dc
 import gc
+import logging
 from collections.abc import Sequence
 from time import time
 
@@ -228,9 +229,18 @@ class CLIArgs:
     degrees: str
     actxs: str
     no_verify: bool
+    logging: str | None
 
 
-if __name__ == "__main__":
+def _configure_logging(level: str | None) -> None:
+    if level is None:
+        logging.disable(logging.CRITICAL)
+    else:
+        logging.disable(logging.NOTSET)
+        logging.basicConfig(level=level, force=True)
+
+
+def _get_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m actx_dgfem_suite.compare_with_sota_array_libs",
         description="Run DG-FEM benchmarks for arraycontexts",
@@ -290,8 +300,25 @@ if __name__ == "__main__":
         default=False,
         help="skips value correctness checks",
     )
+    parser.add_argument(
+        "--logging",
+        metavar="LEVEL",
+        type=str.upper,
+        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+        default=None,
+        help=(
+            "enable logging at LEVEL (DEBUG, INFO, WARNING, ERROR, CRITICAL);"
+            " logging is disabled by default"
+        ),
+    )
 
+    return parser
+
+
+if __name__ == "__main__":
+    parser = _get_argument_parser()
     args = CLIArgs(**vars(parser.parse_args()))  # pyright: ignore[reportAny]
+    _configure_logging(args.logging)
     actx_names = [k.strip() for k in args.actxs.split(",")]
     try:
         actx_ts = [_get_actx_t(name) for name in actx_names]
