@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import string
+from typing import TYPE_CHECKING
 
 import feinsum as fnsm
 import loopy as lp
@@ -9,6 +10,9 @@ import numpy as np
 from feinsum.diagnostics import EinsumTunitMatchError
 from feinsum.einsum import SizeParam
 from pytools.tag import Tag, tag_dataclass
+
+if TYPE_CHECKING:
+    from collections.abc import Set as AbstractSet
 
 
 @tag_dataclass
@@ -40,8 +44,15 @@ def _get_fusion_order_key(tag: EinsumAxisTag) -> tuple[int, str, str]:
 def apply_kennedy_loop_fusion_for_einsum_tags(
     t_unit: lp.TranslationUnit,
 ) -> lp.TranslationUnit:
+    """
+    Apply Kennedy's unweighted loop fusion algorithm to yield batched einsum
+    loop nests via a greedy loop fusion algorithm.
+    """
     kernel = t_unit.default_entrypoint
     einsum_axis_tag_to_iname: dict[EinsumAxisTag, set[str]] = {}
+    subst_expanded_insns = lp.expand_subst(kernel).id_to_insn
+    # Maps each iname to its statement's (reads, writes) sets for `is_infusible`.
+    iname_to_reads_writes: dict[str, tuple[AbstractSet[str], frozenset[str]]] = {}
     for insn in kernel.instructions:
         if isinstance(insn, lp.BarrierInstruction):
             continue
@@ -70,12 +81,30 @@ def apply_kennedy_loop_fusion_for_einsum_tags(
             subst_map = dict(zip(inames, indices, strict=True))
             inames_to_tag = insn.within_inames
 
+        if not inames_to_tag:
+            continue
+        expanded_insn = subst_expanded_insns[insn.id]
+        accesses = (
+            expanded_insn.read_dependency_names(),
+            frozenset(expanded_insn.assignee_var_names()),
+        )
         for iname in inames_to_tag:
+            assert iname not in iname_to_reads_writes, (
+                f"Multiple statements use {iname!r}"
+            )
+            iname_to_reads_writes[iname] = accesses
             tag = EinsumAxisTag.from_non_canon_form(einsum, subst_map[iname])
             einsum_axis_tag_to_iname.setdefault(tag, set()).add(iname)
 
     if not einsum_axis_tag_to_iname:
         raise NotImplementedError
+
+    # Enforce batched einsum criterion: no RAW dependencies between the
+    # statements in the loop nest.
+    def is_infusible(i: str, j: str) -> bool:
+        i_reads, i_writes = iname_to_reads_writes[i]
+        j_reads, j_writes = iname_to_reads_writes[j]
+        return not (i_writes.isdisjoint(j_reads) and j_writes.isdisjoint(i_reads))
 
     for tag, inames in sorted(
         einsum_axis_tag_to_iname.items(), key=lambda x: _get_fusion_order_key(x[0])
@@ -86,6 +115,7 @@ def apply_kennedy_loop_fusion_for_einsum_tags(
                 kernel,
                 inames,
                 prefix=tag.index,
+                extra_is_infusible=is_infusible,
             ),
         )
     return t_unit.with_kernel(kernel)
