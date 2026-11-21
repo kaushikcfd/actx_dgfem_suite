@@ -204,17 +204,10 @@ def solve_dgfem_materialization_eq_using_z3(
     for v in V:
         if c[v] == 2:
             # |U_f^E(v)| <= 1
-            opt.add(  # pyright: ignore[reportUnknownMemberType]
-                z3.Sum(  # pyright: ignore[reportUnknownMemberType]
-                    [
-                        z3.If(  # pyright: ignore[reportUnknownMemberType]
-                            U_f_E[v][u], 1, 0
-                        )
-                        for u in einsum_nodes
-                    ]
+            if len(einsum_nodes) > 1:
+                opt.add(  # pyright: ignore[reportUnknownMemberType]
+                    z3.AtMost(*U_f_E[v].values(), 1)  # pyright: ignore[reportUnknownMemberType]
                 )
-                <= 1
-            )
         else:
             assert c[v] == 0 or c[v] == 1
             for u in einsum_nodes:
