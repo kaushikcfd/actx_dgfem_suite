@@ -1,6 +1,7 @@
 __copyright__ = """
 Copyright (C) 2015 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
+Copyright (C) 2026 Kaushik Kulkarni
 """
 
 __license__ = """
