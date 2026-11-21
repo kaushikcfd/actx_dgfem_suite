@@ -2,6 +2,7 @@
 
 __copyright__ = """
 Copyright (C) 2020 University of Illinois Board of Trustees
+Copyright (C) 2026 Kaushik Kulkarni
 """
 
 __license__ = """
