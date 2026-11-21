@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "actx_dgfem_suite"
-version = "2026.1"
+version = "2026.2"
 description = "A suite of DG-FEM operator benchmarks for arraycontext."
 authors = [
     { name = "Kaushik Kulkarni", email = "kaushikcfd@gmail.com" },
